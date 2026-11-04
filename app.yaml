@@ -1,0 +1,33 @@
+id: construction
+name: Construction
+version: 0.1.0
+publisher: cbferrum
+summary: "Estimates, contracts with variations, progress claims with retention invoiced through ERP, and site diaries"
+description: README.md
+categories: [projects, finance]
+license: AGPL-3.0-only
+homepage: https://github.com/CBFerrum/ferrum-app-construction
+support: https://github.com/CBFerrum/ferrum-app-construction/issues
+runtime: native
+platform: ">=0.3.2, <0.4"
+# Records of ERP (customers, items, invoices): installing it installs ERP.
+requires: {erp: ">=0.1"}
+packages: [construction]
+uninstall: ask
+# Its own interface at /construction/: each contract with what is certified, held and due.
+ui:
+  dist: ui/dist
+contributes:
+  shell.app:
+    - id: construction
+      route: construction
+      title: Construction
+      description: Estimates, contracts, variations, claims and the site diary
+      icon: hard-hat
+      color: "#a16207"
+      roles: [Contracts Manager, Site Manager]
+  shell.open:
+    - {id: construction, package: construction, path: "construction/e/{entity}/{id}", list: "construction/e/{entity}"}
+  shell.create:
+    - {id: estimate, label: Estimate, path: construction/e/Estimate/new, entity: Estimate}
+    - {id: diary, label: Site Diary, path: construction/e/SiteDiary/new, entity: SiteDiary}

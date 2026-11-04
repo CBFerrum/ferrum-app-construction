@@ -1,0 +1,156 @@
+- name: ConstructionSettings
+  label: Construction Settings
+  kind: settings
+  module: construction
+  description: "Where claims are invoiced from."
+  fields:
+    - {name: company, type: link, to: Company, required: true}
+    - {name: claim_item, type: link, to: Item, required: true, description: "What progress claims and released retention are invoiced as"}
+    - {name: retention_percent, type: percent, default: 5, description: "Held from each claim until the contract is complete, unless a contract says otherwise"}
+  form:
+    - {label: Books, fields: [company, claim_item, retention_percent]}
+
+- name: EstimateLine
+  label: Estimate Line
+  kind: child
+  fields:
+    - {name: description, type: data, required: true, in_list: true}
+    - {name: qty, type: decimal, required: true, default: 1, in_list: true}
+    - {name: unit, type: data, in_list: true, description: "m², m³, hours, lump sum"}
+    - {name: rate, type: currency, required: true, in_list: true}
+    - {name: amount, type: currency, read_only: true, in_list: true}
+
+- name: Estimate
+  label: Estimate
+  label_plural: Estimates
+  kind: master
+  module: construction
+  title_field: title
+  description: Priced work for a customer. Accepted, it becomes a contract with its lines as the schedule of values.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: customer, type: link, to: Customer, required: true, in_list: true, in_filter: true}
+    - {name: project, type: link, to: Project, in_filter: true}
+    - {name: valid_until, type: date}
+    - {name: lines, type: table, of: EstimateLine, required: true}
+    - {name: markup_percent, type: percent, default: 0, description: "Overheads and profit on the lines"}
+    - {name: subtotal, type: currency, read_only: true}
+    - {name: total, type: currency, read_only: true, in_list: true}
+    - {name: status, type: select, options: [Draft, Sent, Accepted, Declined], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: contract, type: link, to: ConstructionContract, read_only: true, no_copy: true}
+    - {name: notes, type: text}
+  actions:
+    - {name: send, label: Mark It Sent, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: accept, label: Accept It, permission: write, condition: "doc.status == 'Sent'"}
+    - {name: decline, label: Decline It, permission: write, condition: "doc.status == 'Sent'"}
+  numbering: {template: "EST-{YYYY}-{seq:5}"}
+  list: {columns: [number, title, customer, total, status], sort: created_at desc}
+
+- name: ContractLine
+  label: Contract Line
+  kind: child
+  fields:
+    - {name: code, type: data, required: true, in_list: true}
+    - {name: description, type: data, required: true, in_list: true}
+    - {name: value, type: currency, required: true, in_list: true}
+
+- name: ConstructionContract
+  label: Contract
+  label_plural: Contracts
+  kind: master
+  module: construction
+  title_field: title
+  description: The work agreed, line by line. Variations change it; progress claims are invoiced against it, less retention.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: customer, type: link, to: Customer, required: true, in_list: true, in_filter: true}
+    - {name: project, type: link, to: Project, in_filter: true}
+    - {name: estimate, type: link, to: Estimate, read_only: true}
+    - {name: retention_percent, type: percent, description: "Held from each claim; the settings' when empty"}
+    - {name: lines, type: table, of: ContractLine, required: true, label: Schedule of Values}
+    - {name: original_sum, type: currency, read_only: true, no_copy: true}
+    - {name: variations_sum, type: currency, read_only: true, no_copy: true}
+    - {name: contract_sum, type: currency, read_only: true, no_copy: true, in_list: true}
+    - {name: certified_to_date, type: currency, read_only: true, no_copy: true, in_list: true, description: "Value of the work certified, before retention"}
+    - {name: retention_held, type: currency, read_only: true, no_copy: true, in_list: true}
+    - {name: status, type: select, options: [Active, Complete], default: Active, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: completed_on, type: date, read_only: true, no_copy: true}
+    - {name: retention_invoice, type: link, to: SalesInvoice, read_only: true, no_copy: true}
+  actions:
+    - {name: complete, label: Complete It, permission: write, condition: "doc.status == 'Active'"}
+  numbering: {template: "CON-{YYYY}-{seq:5}"}
+  list: {columns: [number, title, customer, contract_sum, certified_to_date, retention_held, status], sort: created_at desc}
+
+- name: Variation
+  label: Variation
+  label_plural: Variations
+  kind: master
+  module: construction
+  title_field: description
+  description: A change to a contract's work, priced. Approved, it joins the contract's lines.
+  fields:
+    - {name: contract, type: link, to: ConstructionContract, required: true, in_list: true, in_filter: true}
+    - {name: description, type: data, required: true, in_list: true}
+    - {name: reason, type: select, options: [Client Request, Design Change, Site Condition, Omission], default: Client Request, in_list: true}
+    - {name: amount, type: currency, required: true, in_list: true, description: "Below zero for work taken out"}
+    - {name: status, type: select, options: [Draft, Submitted, Approved, Rejected], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: decided_on, type: date, read_only: true, no_copy: true}
+    - {name: decided_by, type: data, read_only: true, no_copy: true}
+    - {name: details, type: text}
+  actions:
+    - {name: submit_variation, label: Submit It, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: approve, label: Approve It, permission: write, condition: "doc.status == 'Submitted'"}
+    - {name: reject, label: Reject It, permission: write, condition: "doc.status == 'Submitted'"}
+  numbering: {template: "VAR-{YYYY}-{seq:5}"}
+  list: {columns: [number, contract, description, amount, status], sort: created_at desc}
+
+- name: ClaimLine
+  label: Claim Line
+  kind: child
+  fields:
+    - {name: code, type: data, required: true, in_list: true, description: "The contract line it measures"}
+    - {name: description, type: data, read_only: true, in_list: true}
+    - {name: value, type: currency, read_only: true, in_list: true}
+    - {name: percent_complete, type: percent, default: 0, in_list: true}
+    - {name: value_to_date, type: currency, read_only: true, in_list: true}
+
+- name: ProgressClaim
+  label: Progress Claim
+  label_plural: Progress Claims
+  kind: master
+  module: construction
+  title_field: contract
+  description: How far each line of a contract has got. Certified, what is due after retention and earlier claims is invoiced through ERP.
+  fields:
+    - {name: contract, type: link, to: ConstructionContract, required: true, in_list: true, in_filter: true}
+    - {name: period_to, type: date, required: true, in_list: true}
+    - {name: lines, type: table, of: ClaimLine, description: "Filled from the contract's lines"}
+    - {name: value_to_date, type: currency, read_only: true, in_list: true}
+    - {name: retention, type: currency, read_only: true, description: "Held to date"}
+    - {name: previous_certified, type: currency, read_only: true}
+    - {name: amount_due, type: currency, read_only: true, in_list: true}
+    - {name: status, type: select, options: [Draft, Certified], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: sales_invoice, type: link, to: SalesInvoice, read_only: true, no_copy: true}
+  actions:
+    - {name: certify, label: Certify It, permission: write, condition: "doc.status == 'Draft'"}
+  numbering: {template: "PC-{YYYY}-{seq:5}"}
+  list: {columns: [number, contract, period_to, value_to_date, amount_due, status], sort: period_to desc}
+
+- name: SiteDiary
+  label: Site Diary
+  label_plural: Site Diaries
+  kind: master
+  module: construction
+  title_field: date
+  description: A day on site, one to a project.
+  fields:
+    - {name: project, type: link, to: Project, required: true, in_list: true, in_filter: true}
+    - {name: date, type: date, required: true, in_list: true}
+    - {name: weather, type: select, options: [Clear, Rain, Wind, Heat, Snow], default: Clear, in_list: true}
+    - {name: workers, type: int, default: 0, in_list: true}
+    - {name: work_done, type: text, required: true}
+    - {name: delays, type: text}
+    - {name: visitors, type: text}
+    - {name: incidents, type: int, default: 0, label: Safety Incidents, in_list: true}
+    - {name: written_by, type: data, read_only: true, no_copy: true}
+  list: {columns: [date, project, weather, workers, incidents], sort: date desc}
