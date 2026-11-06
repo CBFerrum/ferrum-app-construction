@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7
+
+What walking a contract through the pages found:
+- The contracts page wrote amounts as the database keeps them ("Worth 22180 · held 572"). They are now money, grouped and to the cent.
+- An estimate sent and not yet answered was on no page but its list. The contracts page now lists them, waiting for an answer.
+- Before the books are named, the page says claims and retention are invoiced from Construction Settings and asks for them first. A page with nothing yet says an accepted estimate becomes a contract.
+
 ## 0.1.6
 
 Rebuilt with Ferrum-Frontend a76295e: its pages show times on a person's own clock when they chose one on their Account page, while today and due dates stay on the workspace's day.

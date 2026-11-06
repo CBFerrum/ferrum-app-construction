@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { certified, waiting } from "./Home";
+import { certified, money, waiting } from "./Home";
 
 describe("the contracts page", () => {
   it("shows how far a contract is certified", () => {
@@ -14,5 +14,10 @@ describe("the contracts page", () => {
     ]);
     expect(m.get("c1")).toBe(2);
     expect(m.get("c2")).toBe(1);
+  });
+
+  it("writes amounts as the books do", () => {
+    expect(money("22180")).toBe(new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(22180));
+    expect(money(null)).toBe(new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(0));
   });
 });
