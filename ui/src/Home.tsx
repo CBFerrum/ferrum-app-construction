@@ -1,10 +1,11 @@
 // The contracts: each one's worth, how much of it is certified, the retention held, and what waits
-// on someone (variations submitted, claims in draft). Each opens its record.
+// on someone (variations submitted, claims in draft), with the estimates sent and not yet answered.
+// Each opens its record. Before claims can be invoiced, it says what to set up.
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, docPath } from "@ferrum/client";
-import { Badge, ErrorState, PageLoading, statusTone, useShellTitle } from "@ferrum/kit";
+import { api, docPath, formatDecimal } from "@ferrum/client";
+import { Badge, EmptyState, ErrorState, PageLoading, statusTone, useShellTitle } from "@ferrum/kit";
 
 interface Row {
   id: string;
@@ -15,6 +16,9 @@ const rows = (entity: string, filters: unknown[], extra: Record<string, string |
   api.get<{ rows: Row[] }>(docPath(entity), { filters: JSON.stringify(filters), limit: 500, ...extra }).then((r) => r.rows);
 
 const num = (v: unknown) => Number(v ?? 0) || 0;
+
+/** An amount as the books write it: grouped, to the cent ("22,180.00"). */
+export const money = (v: unknown) => formatDecimal(String(v ?? "0") || "0", 2);
 
 /** How far a contract is certified, as a whole percentage of its worth. */
 export function certified(contract: Row): number {
@@ -37,12 +41,14 @@ export function Home() {
   const q = useQuery({
     queryKey: ["construction", "home"],
     queryFn: async () => {
-      const [contracts, variations, claims] = await Promise.all([
+      const [contracts, variations, claims, estimates, settings] = await Promise.all([
         rows("ConstructionContract", [], { sort: "created_at desc" }),
         rows("Variation", [["status", "eq", "Submitted"]]),
         rows("ProgressClaim", [["status", "eq", "Draft"]]),
+        rows("Estimate", [["status", "eq", "Sent"]], { sort: "created_at desc" }),
+        rows("ConstructionSettings", [], { fields: "id", limit: 1 }),
       ]);
-      return { contracts, variations, claims };
+      return { contracts, variations, claims, estimates, named: settings.length > 0 };
     },
   });
   if (q.isPending) return <PageLoading />;
@@ -54,13 +60,38 @@ export function Home() {
         <h2>Contracts</h2>
         <Link to="/e/Estimate/new">New estimate</Link>
       </header>
+      {!q.data.named && (
+        <EmptyState title="Set up the books first" icon="settings">
+          <p className="muted">
+            Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in{" "}
+            <Link to="/e/ConstructionSettings">Construction Settings</Link>.
+          </p>
+        </EmptyState>
+      )}
+      {q.data.estimates.length > 0 && (
+        <section className="card card-pad stack" aria-label="Estimates waiting">
+          <h3>Estimates sent, waiting for an answer ({q.data.estimates.length})</h3>
+          <ul className="stack">
+            {q.data.estimates.map((e) => (
+              <li key={e.id}>
+                <Link to={`/e/Estimate/${e.id}`}>
+                  {String(e.number ?? "")} · {String(e.title)} · {money(e.total)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {q.data.named && q.data.contracts.length === 0 && q.data.estimates.length === 0 && (
+        <p className="muted">No contracts yet. An estimate the customer accepts becomes one.</p>
+      )}
       <div className="np-columns">
         {q.data.contracts.map((c) => (
           <Link key={c.id} className="card card-pad stack" to={`/e/ConstructionContract/${c.id}`}>
             <strong>{String(c.title)}</strong>
             <span className="faint">{String(c.number ?? "")}</span>
             <span>
-              Worth {String(c.contract_sum ?? "0")} · certified {certified(c)}% · held {String(c.retention_held ?? "0")}
+              Worth {money(c.contract_sum)} · certified {certified(c)}% · held {money(c.retention_held)}
             </span>
             <span className="row">
               <Badge tone={statusTone(String(c.status))}>{String(c.status)}</Badge>
