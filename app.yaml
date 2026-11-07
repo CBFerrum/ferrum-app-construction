@@ -1,6 +1,6 @@
 id: construction
 name: Construction
-version: 0.1.13
+version: 0.1.14
 publisher: cbferrum
 summary: "Estimates, contracts with variations, progress claims with retention invoiced through ERP, and site diaries"
 description: README.md
@@ -31,3 +31,17 @@ contributes:
   shell.create:
     - {id: estimate, label: Estimate, path: construction/e/Estimate/new, entity: Estimate}
     - {id: diary, label: Site Diary, path: construction/e/SiteDiary/new, entity: SiteDiary}
+  # What the assistant should know in Construction's pages, and what it suggests asking there.
+  shell.assistant:
+    - id: construction
+      title: "Construction"
+      instructions: >-
+        An Estimate (Draft, Sent, Accepted, Declined) becomes a ConstructionContract when accepted. A Variation
+        (Draft, Submitted, Approved, Rejected) changes a contract's sum once approved. A ProgressClaim is Certified
+        when the work claimed is agreed, and is invoiced through ERP with the contract's retention held back: what is
+        owed is those invoices' outstanding amount. A SiteDiary records each day on site.
+      suggestions:
+        - "What is each active contract worth with its approved variations?"
+        - "Which progress claims wait to be certified?"
+        - "How much retention is held on our contracts?"
+        - "What happened on site this week?"
