@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, docPath, formatDecimal, t } from "@ferrum/client";
+import { api, docPath, formatDecimal, t, isolate } from "@ferrum/client";
 import { Badge, EmptyState, ErrorState, PageLoading, statusTone, useShellTitle } from "@ferrum/kit";
 
 interface Row {
@@ -37,7 +37,7 @@ export function waiting(variations: Row[], claims: Row[]): Map<string, number> {
 }
 
 export function Home() {
-  useShellTitle("Construction");
+  useShellTitle(t("Construction"));
   const q = useQuery({
     queryKey: ["construction", "home"],
     queryFn: async () => {
@@ -63,7 +63,7 @@ export function Home() {
       {!q.data.named && (
         <EmptyState title={t("Set up the books first")} icon="settings">
           <p className="muted">
-            {t("Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in")}{" "}
+            {t("Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in")}{isolate(" ")}
             <Link to="/e/ConstructionSettings">{t("Construction Settings")}</Link>.
           </p>
         </EmptyState>
@@ -75,7 +75,7 @@ export function Home() {
             {q.data.estimates.map((e) => (
               <li key={e.id}>
                 <Link to={`/e/Estimate/${e.id}`}>
-                  {String(e.number ?? "")} · {String(e.title)} · {money(e.total)}
+                  {isolate(String(e.number ?? ""))} · {isolate(String(e.title))} · {isolate(money(e.total))}
                 </Link>
               </li>
             ))}
@@ -88,14 +88,14 @@ export function Home() {
       <div className="np-columns">
         {q.data.contracts.map((c) => (
           <Link key={c.id} className="card card-pad stack" to={`/e/ConstructionContract/${c.id}`}>
-            <strong>{String(c.title)}</strong>
-            <span className="faint">{String(c.number ?? "")}</span>
+            <strong>{isolate(String(c.title))}</strong>
+            <span className="faint">{isolate(String(c.number ?? ""))}</span>
             <span>
-              {t("Worth")} {money(c.contract_sum)} {t("· certified")} {certified(c)}{t("% · held")} {money(c.retention_held)}
+              {t("Worth")} {isolate(money(c.contract_sum))} {t("· certified")} {certified(c)}{t("% · held")} {isolate(money(c.retention_held))}
             </span>
             <span className="row">
-              <Badge tone={statusTone(String(c.status))}>{String(c.status)}</Badge>
-              {(pending.get(c.id) ?? 0) > 0 && <Badge tone="amber">{`${pending.get(c.id)} waiting`}</Badge>}
+              <Badge tone={statusTone(String(c.status))}>{isolate(String(c.status))}</Badge>
+              {(pending.get(c.id) ?? 0) > 0 && <Badge tone="amber">{t("{pending} waiting", { pending: String(pending.get(c.id)) })}</Badge>}
             </span>
           </Link>
         ))}
