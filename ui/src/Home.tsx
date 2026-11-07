@@ -4,7 +4,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
-import { api, docPath, formatDecimal } from "@ferrum/client";
+import { api, docPath, formatDecimal, t } from "@ferrum/client";
 import { Badge, EmptyState, ErrorState, PageLoading, statusTone, useShellTitle } from "@ferrum/kit";
 
 interface Row {
@@ -57,20 +57,20 @@ export function Home() {
   return (
     <div className="np-page">
       <header className="row" style={{ justifyContent: "space-between" }}>
-        <h2>Contracts</h2>
-        <Link to="/e/Estimate/new">New estimate</Link>
+        <h2>{t("Contracts")}</h2>
+        <Link to="/e/Estimate/new">{t("New estimate")}</Link>
       </header>
       {!q.data.named && (
-        <EmptyState title="Set up the books first" icon="settings">
+        <EmptyState title={t("Set up the books first")} icon="settings">
           <p className="muted">
-            Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in{" "}
-            <Link to="/e/ConstructionSettings">Construction Settings</Link>.
+            {t("Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in")}{" "}
+            <Link to="/e/ConstructionSettings">{t("Construction Settings")}</Link>.
           </p>
         </EmptyState>
       )}
       {q.data.estimates.length > 0 && (
-        <section className="card card-pad stack" aria-label="Estimates waiting">
-          <h3>Estimates sent, waiting for an answer ({q.data.estimates.length})</h3>
+        <section className="card card-pad stack" aria-label={t("Estimates waiting")}>
+          <h3>{t("Estimates sent, waiting for an answer ({length})", { length: q.data.estimates.length })}</h3>
           <ul className="stack">
             {q.data.estimates.map((e) => (
               <li key={e.id}>
@@ -83,7 +83,7 @@ export function Home() {
         </section>
       )}
       {q.data.named && q.data.contracts.length === 0 && q.data.estimates.length === 0 && (
-        <p className="muted">No contracts yet. An estimate the customer accepts becomes one.</p>
+        <p className="muted">{t("No contracts yet. An estimate the customer accepts becomes one.")}</p>
       )}
       <div className="np-columns">
         {q.data.contracts.map((c) => (
@@ -91,7 +91,7 @@ export function Home() {
             <strong>{String(c.title)}</strong>
             <span className="faint">{String(c.number ?? "")}</span>
             <span>
-              Worth {money(c.contract_sum)} · certified {certified(c)}% · held {money(c.retention_held)}
+              {t("Worth")} {money(c.contract_sum)} {t("· certified")} {certified(c)}{t("% · held")} {money(c.retention_held)}
             </span>
             <span className="row">
               <Badge tone={statusTone(String(c.status))}>{String(c.status)}</Badge>
