@@ -52,8 +52,7 @@ cd ui && npm run build && npm run check
 
 ## Not yet
 
-- Retention released in halves (at practical completion and after defects), or capped.
-- Claims for materials on site, and subcontractors' claims and payments.
+- Claims for materials on site, and paying subcontractors (their claims are billed; payment is ERP's).
 - Measured quantities (claims by quantity rather than percentage), and cost against budget.
 - A client's portal for approving variations and claims.
 
@@ -61,6 +60,7 @@ cd ui && npm run build && npm run check
 
 | Version | Highlights |
 |---|---|
+| **0.2.0** | Subcontracts and their claims; retention capped and released in halves; approvals by someone else; construction margin. |
 | **0.1.15** | Its names in Arabic and Hindi. |
 | **0.1.14** | The assistant knows its records. |
 | **0.1.13** | Rebuilt with Ferrum-Frontend 5b22e7b: its own words in Arabic and Hindi. |

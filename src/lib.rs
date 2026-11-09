@@ -16,6 +16,8 @@ mod claims;
 mod contracts;
 mod diary;
 mod estimates;
+mod reports;
+mod subcontracts;
 
 use ferrum_domain::reports::ReportSource;
 use ferrum_domain::util::{d, s};
@@ -43,12 +45,14 @@ pub fn register(hooks: &mut HookRegistry) {
         .register("ConstructionContract", Arc::new(contracts::ContractHook))
         .register("Variation", Arc::new(contracts::VariationHook))
         .register("ProgressClaim", Arc::new(claims::ClaimHook))
+        .register("Subcontract", Arc::new(subcontracts::SubcontractHook))
+        .register("SubcontractClaim", Arc::new(subcontracts::SubcontractClaimHook))
         .register("SiteDiary", Arc::new(diary::DiaryHook));
 }
 
 /// This app's reports: none of its own yet; what is billed is ERP's receivables.
 pub fn reports() -> Vec<Arc<dyn ReportSource>> {
-    vec![]
+    vec![Arc::new(reports::Margin)]
 }
 
 /// Upkeep: nothing runs by itself.
@@ -92,6 +96,11 @@ pub(crate) async fn invoice(k: &Kernel, ctx: &Ctx, tx: &mut Tx, customer: &str, 
         obj(serde_json::json!({"company": company.to_string(), "customer": customer, "currency": currency.map(|c| c.to_string()), "items": [line], "remarks": what})),
     )
     .await
+}
+
+/// Whether `ctx` raised `doc`: what they raise, someone else approves or certifies (FEO-049).
+pub(crate) fn raised_by(doc: &Doc, ctx: &Ctx) -> bool {
+    doc.get("created_by").and_then(Value::as_str) == Some(ctx.user.to_string().as_str())
 }
 
 /// Whether `ctx` decides for the contracts: a Contracts Manager, or an administrator.

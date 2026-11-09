@@ -27,7 +27,7 @@ impl DocHook for ContractHook {
     }
 
     fn fills(&self) -> &'static [&'static str] {
-        &["original_sum", "contract_sum", "retention_percent"]
+        &["original_sum", "contract_sum", "retention_percent", "retention_cap_percent"]
     }
 
     async fn before_validate(&self, hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
@@ -39,6 +39,15 @@ impl DocHook for ContractHook {
                 .await?
                 .flatten();
             doc.insert("retention_percent".into(), money(r.unwrap_or_default()));
+        }
+        // And the cap on it, when the settings name one and the contract none (FEO-049).
+        if doc.get("retention_cap_percent").is_none_or(Value::is_null) {
+            let cap: Option<Decimal> = sqlx::query_scalar("select retention_cap_percent from e_construction_settings where tenant_id = $1 limit 1")
+                .bind(hc.ctx.tenant)
+                .fetch_optional(&mut **hc.tx)
+                .await?
+                .flatten();
+            doc.insert("retention_cap_percent".into(), cap.map_or(Value::Null, money));
         }
         let total = sum(&rows(doc, "lines"), "value");
         doc.insert("contract_sum".into(), money(total));
@@ -75,6 +84,9 @@ impl DocHook for ContractHook {
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
+        if name == "practical_completion" {
+            return practical_completion(hc, doc).await.map(Some);
+        }
         if name != "complete" {
             return Ok(None);
         }
@@ -88,7 +100,8 @@ impl DocHook for ContractHook {
         }
         let system = elevated(hc.ctx);
         let held = d(doc, "retention_held");
-        let mut values = obj(json!({"status": "Complete", "completed_on": Utc::now().date_naive().to_string(), "retention_held": money(Decimal::ZERO)}));
+        let mut values = obj(json!({"status": "Complete", "completed_on": Utc::now().date_naive().to_string(), "retention_held": money(Decimal::ZERO),
+                                    "retention_released": money(d(doc, "retention_released") + held)}));
         let mut out = json!({"status": "Complete"});
         if held > Decimal::ZERO {
             let customer = s(doc, "customer").ok_or_else(|| Error::field("customer", "is required"))?;
@@ -100,6 +113,31 @@ impl DocHook for ContractHook {
         hc.kernel.set_values_tx(&system, hc.tx, "ConstructionContract", contract, values).await?;
         Ok(Some(out))
     }
+}
+
+/// Practical completion (FEO-049): half of the retention held is released and invoiced, the rest at
+/// completion, once defects are put right. By a Contracts Manager, once.
+async fn practical_completion(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> {
+    let contract = id(doc, "id").ok_or_else(|| Error::internal("a contract without an id"))?;
+    if !decides(hc.ctx) {
+        return Err(Error::Forbidden("a Contracts Manager says a contract is practically complete".into()));
+    }
+    let held = d(doc, "retention_held");
+    let half = ferrum_domain::util::round(held / Decimal::TWO, 2);
+    let system = elevated(hc.ctx);
+    let mut values = obj(json!({"practical_completion_on": Utc::now().date_naive().to_string()}));
+    let mut out = json!({"released": money(half)});
+    if half > Decimal::ZERO {
+        let customer = s(doc, "customer").ok_or_else(|| Error::field("customer", "is required"))?;
+        let what = format!("Half of the retention released at practical completion, {}", s(doc, "number").unwrap_or_default());
+        let inv = invoice(hc.kernel, &system, hc.tx, customer, half, what).await?;
+        values.insert("half_retention_invoice".into(), inv.get("id").cloned().unwrap_or(Value::Null));
+        values.insert("retention_held".into(), money(held - half));
+        values.insert("retention_released".into(), money(d(doc, "retention_released") + half));
+        out["invoice"] = created("SalesInvoice", &inv);
+    }
+    hc.kernel.set_values_tx(&system, hc.tx, "ConstructionContract", contract, values).await?;
+    Ok(out)
 }
 
 pub struct VariationHook;
@@ -160,6 +198,10 @@ impl DocHook for VariationHook {
             "approve" => {
                 if !decides(hc.ctx) {
                     return Err(Error::Forbidden("a Contracts Manager decides a variation".into()));
+                }
+                // Independently: not by whoever raised it (FEO-049).
+                if crate::raised_by(doc, hc.ctx) {
+                    return Err(Error::Forbidden("someone other than whoever raised a variation approves it".into()));
                 }
                 let contract_id = id(doc, "contract").ok_or_else(|| Error::field("contract", "is required"))?;
                 let contract = hc.kernel.get_tx(&system, hc.tx, "ConstructionContract", contract_id, true).await?;
