@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+Subcontracts and their claims, retention capped and released in halves, approvals by someone else, and the margin between them (FEO-049).
+
+- **Subcontracts.** Work let to a supplier under a contract, at its value, holding the settings' retention unless it says otherwise. A subcontract claim says the value of the work done to date. A Contracts Manager other than whoever drew it up certifies it, and what is due after retention and earlier claims is billed through ERP as a draft purchase invoice from the supplier, numbered as the claim. Certified work is not taken back.
+- **Independent approval.** A variation is approved by someone other than whoever raised it, and a progress claim is certified by someone other than whoever drew it up.
+- **Retention.** A Retention Cap (on a contract, or in the settings) stops what is held growing past that share of the contract sum. Practical Completion releases and invoices half of what is held; completing the contract releases the rest; Retention Released keeps the total.
+- **Construction Margin.** Each contract's sum and what is certified of it, beside its subcontracts' worth and what is certified of them. The margin is what was certified to the client less what was certified to subcontractors; the forecast is the contract sum less the subcontracts'. It is for Contracts Managers only.
+
+The package now needs ERP's buying, for suppliers and purchase invoices. Its names are in Arabic and Hindi.
+
 ## 0.1.15
 
 Rebuilt with Ferrum-Frontend c59c9a2: the names of its models, fields and manifest in Arabic and Hindi (119 each in ui/src/locales/names, which the platform serves to every page of the workspace, so a record's labels, the launcher and the bar read in the person's language). Translated by the model, to be reviewed by native speakers.

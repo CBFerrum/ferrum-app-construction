@@ -68,7 +68,11 @@ async fn compute(hc: &mut HookCtx<'_>, doc: &mut Doc) -> Result<()> {
         lines.push(json!({"id": row, "idx": lines.len(), "code": code, "description": s(l, "description"), "value": money(d(l, "value")),
                           "percent_complete": money(pct), "value_to_date": money(value)}));
     }
-    let retention = round(to_date * d(&contract, "retention_percent") / Decimal::ONE_HUNDRED, 2);
+    let mut retention = round(to_date * d(&contract, "retention_percent") / Decimal::ONE_HUNDRED, 2);
+    // Held up to the contract's cap, a share of what it is worth (FEO-049).
+    if let Some(cap) = contract.get("retention_cap_percent").filter(|v| !v.is_null()).map(|_| d(&contract, "retention_cap_percent")) {
+        retention = retention.min(round(d(&contract, "contract_sum") * cap / Decimal::ONE_HUNDRED, 2));
+    }
     let previous: Decimal = sqlx::query_scalar(
         "select coalesce(sum(amount_due), 0) from e_progress_claim where tenant_id = $1 and contract = $2 and status = 'Certified' and id <> $3",
     )
@@ -157,6 +161,9 @@ impl DocHook for ClaimHook {
         }
         if !decides(hc.ctx) {
             return Err(Error::Forbidden("a Contracts Manager certifies a claim".into()));
+        }
+        if crate::raised_by(doc, hc.ctx) {
+            return Err(Error::Forbidden("someone other than whoever drew up a claim certifies it".into()));
         }
         let claim = id(doc, "id").ok_or_else(|| Error::internal("a claim without an id"))?;
         let contract_id = id(doc, "contract").ok_or_else(|| Error::field("contract", "is required"))?;

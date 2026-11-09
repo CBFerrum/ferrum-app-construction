@@ -2,14 +2,14 @@ package: construction
 version: 0.1.0
 label: Construction
 description: "Estimates, contracts with variations, progress claims with retention invoiced through ERP, and site diaries"
-depends: [core, selling, accounting, project_records]
+depends: [core, selling, buying, accounting, project_records]
 
 modules:
   - name: construction
     label: Construction
     icon: hard-hat
     order: 52
-    items: [ConstructionContract, Estimate, Variation, ProgressClaim, SiteDiary, ConstructionSettings]
+    items: [ConstructionContract, Estimate, Variation, ProgressClaim, Subcontract, SubcontractClaim, SiteDiary, ConstructionSettings, report:construction_margin]
 
 roles:
   - name: Contracts Manager
@@ -26,11 +26,17 @@ roles:
       - {entity: Item, read: true}
       - {entity: Company, read: true}
       - {entity: SalesInvoice, read: true, create: true}
+      - {entity: Subcontract, read: true, write: true, create: true, export: true}
+      - {entity: SubcontractClaim, read: true, write: true, create: true, export: true}
+      - {entity: Supplier, read: true}
+      - {entity: PurchaseInvoice, read: true, create: true}
   - name: Site Manager
     description: Keeps the site diary, raises variations and measures progress claims; sees contracts.
     permissions:
       - {entity: ConstructionContract, read: true}
       - {entity: Variation, read: true, write: true, create: true}
       - {entity: ProgressClaim, read: true, write: true, create: true}
+      - {entity: Subcontract, read: true}
+      - {entity: SubcontractClaim, read: true, write: true, create: true}
       - {entity: SiteDiary, read: true, write: true, create: true}
       - {entity: Project, read: true}

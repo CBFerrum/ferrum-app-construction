@@ -12,6 +12,7 @@ use ferrum_kernel::tenant::NewTenant;
 use ferrum_kernel::{Ctx, Db, DbConfig, Doc, Error, HookRegistry, Kernel, KernelSettings, ListQuery};
 use ferrum_meta::Catalog;
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -93,6 +94,9 @@ async fn scenario() {
     ferrum_domain::register(&mut hooks);
     ferrum_app_erp::register(&mut hooks);
     ferrum_app_construction::register(&mut hooks);
+    for source in ferrum_app_construction::reports() {
+        ferrum_domain::reports::add_source(source);
+    }
     let settings = KernelSettings { secret_key: Some(SecretKey::new([7u8; 32])), ..Default::default() };
     let k = Kernel::boot(db, catalog, hooks, settings, None).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
@@ -190,6 +194,10 @@ async fn scenario() {
     let c = t.get("ConstructionContract", contract).await;
     assert_eq!((dec(&c["contract_sum"]), dec(&c["original_sum"]), dec(&c["variations_sum"])), (115500.0, 110000.0, 5500.0));
     assert_eq!(c["lines"].as_array().unwrap().last().unwrap()["code"], vcode.as_str());
+    let mine = uid(&t.insert(&cm, "Variation", variation("Own idea", "100")).await["id"]);
+    t.act(&cm, "Variation", mine, "submit_variation").await.unwrap();
+    refused(t.act(&cm, "Variation", mine, "approve").await, "forbidden", "someone other than whoever raised");
+    t.act(&cm, "Variation", mine, "reject").await.unwrap();
     let paint = uid(&t.insert(&sm, "Variation", variation("Gold paint", "20000")).await["id"]);
     t.act(&sm, "Variation", paint, "submit_variation").await.unwrap();
     t.act(&cm, "Variation", paint, "reject").await.unwrap();
@@ -198,11 +206,15 @@ async fn scenario() {
     // ───────────── progress claims ─────────────
     let claim = |to: &str, lines: Value| json!({"contract": contract.to_string(), "period_to": to, "lines": lines});
     let pc1 =
-        t.insert(&cm, "ProgressClaim", claim("2026-03-31", json!([{"code": "1", "percent_complete": "100"}, {"code": "2", "percent_complete": "50"}]))).await;
+        t.insert(&sm, "ProgressClaim", claim("2026-03-31", json!([{"code": "1", "percent_complete": "100"}, {"code": "2", "percent_complete": "50"}]))).await;
     assert_eq!((dec(&pc1["value_to_date"]), dec(&pc1["retention"]), dec(&pc1["amount_due"])), (60500.0, 3025.0, 57475.0));
     assert_eq!(pc1["lines"].as_array().unwrap().len(), 4, "every line of the contract, the variation's too");
     let pc1 = uid(&pc1["id"]);
     refused(t.act(&sm, "ProgressClaim", pc1, "certify").await, "forbidden", "a Contracts Manager certifies");
+    // What someone draws up, someone else certifies; what someone raises, someone else approves (FEO-049).
+    let own = uid(&t.insert(&cm, "ProgressClaim", claim("2026-03-31", json!([{"code": "1", "percent_complete": "10"}]))).await["id"]);
+    refused(t.act(&cm, "ProgressClaim", own, "certify").await, "forbidden", "someone other than whoever drew up");
+    t.k.delete(&a, "ProgressClaim", own, None).await.expect("a draft goes");
     let certified = t.act(&cm, "ProgressClaim", pc1, "certify").await.expect("certified");
     assert_eq!(t.invoiced(&certified["sales_invoice"]).await, (acme.to_string(), 57475.0));
     let c = t.get("ConstructionContract", contract).await;
@@ -234,7 +246,7 @@ async fn scenario() {
     );
     let pc2 = uid(&pc2["id"]);
     // A draft drawn up before the claim ahead of it is certified, is recomputed when it is.
-    let pc3 = t.insert(&cm, "ProgressClaim", claim("2026-05-31", json!([{"code": "3", "percent_complete": "100"}]))).await;
+    let pc3 = t.insert(&sm, "ProgressClaim", claim("2026-05-31", json!([{"code": "3", "percent_complete": "100"}]))).await;
     assert_eq!(dec(&pc3["previous_certified"]), 57475.0, "drafted while the April claim was a draft");
     let pc3 = uid(&pc3["id"]);
     let c2 = t.act(&cm, "ProgressClaim", pc2, "certify").await.unwrap();
@@ -244,21 +256,57 @@ async fn scenario() {
     assert_eq!(t.invoiced(&c3["sales_invoice"]).await.1, 15675.0);
     let pc3_doc = t.get("ProgressClaim", pc3).await;
     assert_eq!(dec(&pc3_doc["previous_certified"]), 94050.0, "what is kept is what was certified");
-    let pc4 = uid(&t.insert(&cm, "ProgressClaim", claim("2026-06-30", json!([]))).await["id"]);
+    let pc4 = uid(&t.insert(&sm, "ProgressClaim", claim("2026-06-30", json!([]))).await["id"]);
     refused(t.act(&cm, "ProgressClaim", pc4, "certify").await, "invalid", "adds no work");
     // A variation that would make the contract worth less than what is certified is refused.
     let cut = uid(&t.insert(&sm, "Variation", variation("Smaller roof", "-500")).await["id"]);
     t.act(&sm, "Variation", cut, "submit_variation").await.unwrap();
     refused(t.act(&cm, "Variation", cut, "approve").await, "invalid", "less than the 115500");
 
+    // ───────────── a subcontract and its claims (FEO-049) ─────────────
+    let steelco = uid(&t.insert(&a, "Supplier", json!({"supplier_name": "Steel Co"})).await["id"]);
+    let steel = uid(&t
+        .insert(&cm, "Subcontract", json!({"title": "Steel frame", "contract": contract.to_string(), "supplier": steelco.to_string(), "value": "30000"}))
+        .await["id"]);
+    assert_eq!(dec(&t.get("Subcontract", steel).await["retention_percent"]), 5.0, "the settings' retention");
+    let sub_claim = |to: &str, value: &str| json!({"subcontract": steel.to_string(), "period_to": to, "value_to_date": value});
+    refused(t.k.insert(&sm, "SubcontractClaim", obj(sub_claim("2026-03-31", "31000"))).await, "invalid", "to the subcontract's 30000");
+    let sc1 = t.insert(&sm, "SubcontractClaim", sub_claim("2026-03-31", "12000")).await;
+    assert_eq!((dec(&sc1["retention"]), dec(&sc1["amount_due"])), (600.0, 11400.0));
+    let sc1 = uid(&sc1["id"]);
+    refused(t.act(&sm, "SubcontractClaim", sc1, "certify").await, "forbidden", "a Contracts Manager certifies");
+    let billed = t.act(&cm, "SubcontractClaim", sc1, "certify").await.expect("certified");
+    let bill = t.get("PurchaseInvoice", uid(&billed["purchase_invoice"]["id"])).await;
+    assert_eq!((bill["supplier"].as_str(), dec(&bill["net_total"])), (Some(steelco.to_string().as_str()), 11400.0), "billed through ERP, less retention");
+    refused(t.k.insert(&sm, "SubcontractClaim", obj(sub_claim("2026-04-30", "10000"))).await, "invalid", "work certified is not taken back");
+    let sc2 = uid(&t.insert(&sm, "SubcontractClaim", sub_claim("2026-04-30", "30000")).await["id"]);
+    let done_sub = t.act(&cm, "SubcontractClaim", sc2, "certify").await.unwrap();
+    assert_eq!(dec(&done_sub["amount_due"]), 17100.0, "30000 less 1500 held less the 11400 before");
+    let sub = t.get("Subcontract", steel).await;
+    assert_eq!((dec(&sub["certified_to_date"]), dec(&sub["retention_held"])), (30000.0, 1500.0));
+    // The margin: certified to the client less certified to the subcontractor; forecast, the sums.
+    let margin = ferrum_domain::reports::run(&t.k, &cm, "construction_margin", &HashMap::new()).await.expect("margin");
+    let number = t.get("ConstructionContract", contract).await["number"].clone();
+    let row = margin["rows"].as_array().unwrap().iter().find(|r| r["contract"] == number).cloned().unwrap();
+    assert_eq!(
+        (dec(&row["certified"]), dec(&row["subcontract_certified"]), dec(&row["margin"]), dec(&row["forecast_margin"])),
+        (115500.0, 30000.0, 85500.0, 85500.0)
+    );
+    assert!(matches!(ferrum_domain::reports::run(&t.k, &sm, "construction_margin", &HashMap::new()).await, Err(Error::Forbidden(_))), "what subcontracts cost");
+
     // ───────────── completing ─────────────
     let small = uid(&t
-        .insert(&cm, "ConstructionContract", json!({"title": "Fence", "customer": acme.to_string(), "retention_percent": "10", "lines": [{"code": "1", "description": "Fence", "value": "10000"}]}))
+        .insert(
+            &cm,
+            "ConstructionContract",
+            json!({"title": "Fence", "customer": acme.to_string(), "retention_percent": "10", "retention_cap_percent": "4", "lines": [{"code": "1", "description": "Fence", "value": "10000"}]}),
+        )
         .await["id"]);
     assert_eq!(dec(&t.get("ConstructionContract", small).await["retention_percent"]), 10.0, "a contract's own retention");
     let half = uid(&t
-        .insert(&cm, "ProgressClaim", json!({"contract": small.to_string(), "period_to": "2026-04-30", "lines": [{"code": "1", "percent_complete": "50"}]}))
+        .insert(&sm, "ProgressClaim", json!({"contract": small.to_string(), "period_to": "2026-04-30", "lines": [{"code": "1", "percent_complete": "50"}]}))
         .await["id"]);
+    assert_eq!(dec(&t.get("ProgressClaim", half).await["retention"]), 400.0, "10% of 5000 is 500, capped at 4% of the 10000");
     t.act(&cm, "ProgressClaim", half, "certify").await.unwrap();
     refused(t.act(&cm, "ConstructionContract", small, "complete").await, "invalid", "certified 5000");
     refused(t.act(&sm, "ConstructionContract", contract, "complete").await, "forbidden", "");
@@ -267,8 +315,14 @@ async fn scenario() {
     t.k.set_role_permission(&a, "Site Manager", &write).await.unwrap();
     let sm = t.k.load_ctx(t.tenant, sm.user, None, "it".into()).await.unwrap();
     refused(t.act(&sm, "ConstructionContract", contract, "complete").await, "forbidden", "a Contracts Manager completes");
+    refused(t.act(&sm, "ConstructionContract", contract, "practical_completion").await, "forbidden", "a Contracts Manager");
+    let practical = t.act(&cm, "ConstructionContract", contract, "practical_completion").await.expect("practically complete");
+    assert_eq!(t.invoiced(&practical["invoice"]).await, (acme.to_string(), 2887.5), "half of the 5775 held");
+    assert_eq!(dec(&t.get("ConstructionContract", contract).await["retention_held"]), 2887.5);
+    refused(t.act(&cm, "ConstructionContract", contract, "practical_completion").await, "invalid", "not available");
     let done = t.act(&cm, "ConstructionContract", contract, "complete").await.expect("complete");
-    assert_eq!(t.invoiced(&done["retention_invoice"]).await, (acme.to_string(), 5775.0), "the retention released");
+    assert_eq!(t.invoiced(&done["retention_invoice"]).await, (acme.to_string(), 2887.5), "the rest of the retention released");
+    assert_eq!(dec(&t.get("ConstructionContract", contract).await["retention_released"]), 5775.0);
     let c = t.get("ConstructionContract", contract).await;
     assert_eq!((c["status"].as_str(), dec(&c["retention_held"])), (Some("Complete"), 0.0));
     refused(t.act(&cm, "ConstructionContract", contract, "complete").await, "invalid", "not available");

@@ -7,8 +7,9 @@
     - {name: company, type: link, to: Company, required: true}
     - {name: claim_item, type: link, to: Item, required: true, description: "What progress claims and released retention are invoiced as"}
     - {name: retention_percent, type: percent, default: 5, description: "Held from each claim until the contract is complete, unless a contract says otherwise"}
+    - {name: retention_cap_percent, type: percent, label: Retention Cap, description: "Retention held stops growing at this share of the contract sum, unless a contract says otherwise; empty: no cap"}
   form:
-    - {label: Books, fields: [company, claim_item, retention_percent]}
+    - {label: Books, fields: [company, claim_item, retention_percent, retention_cap_percent]}
 
 - name: EstimateLine
   label: Estimate Line
@@ -67,6 +68,7 @@
     - {name: project, type: link, to: Project, in_filter: true}
     - {name: estimate, type: link, to: Estimate, read_only: true}
     - {name: retention_percent, type: percent, description: "Held from each claim; the settings' when empty"}
+    - {name: retention_cap_percent, type: percent, label: Retention Cap, description: "Retention held stops growing at this share of the contract sum; the settings' when empty"}
     - {name: lines, type: table, of: ContractLine, required: true, label: Schedule of Values}
     - {name: original_sum, type: currency, read_only: true, no_copy: true}
     - {name: variations_sum, type: currency, read_only: true, no_copy: true}
@@ -75,8 +77,13 @@
     - {name: retention_held, type: currency, read_only: true, no_copy: true, in_list: true}
     - {name: status, type: select, options: [Active, Complete], default: Active, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: completed_on, type: date, read_only: true, no_copy: true}
+    - {name: practical_completion_on, type: date, read_only: true, no_copy: true, description: "When the first half of the retention was released"}
+    - {name: retention_released, type: currency, read_only: true, no_copy: true}
+    - {name: half_retention_invoice, type: link, to: SalesInvoice, read_only: true, no_copy: true, label: First Half's Invoice}
     - {name: retention_invoice, type: link, to: SalesInvoice, read_only: true, no_copy: true}
   actions:
+    - {name: practical_completion, label: Practical Completion, permission: write, condition: "doc.status == 'Active' && doc.practical_completion_on == null",
+       confirm: "Release half of the retention held, and invoice it?"}
     - {name: complete, label: Complete It, permission: write, condition: "doc.status == 'Active'"}
   numbering: {template: "CON-{YYYY}-{seq:5}"}
   list: {columns: [number, title, customer, contract_sum, certified_to_date, retention_held, status], sort: created_at desc}
@@ -154,3 +161,44 @@
     - {name: incidents, type: int, default: 0, label: Safety Incidents, in_list: true}
     - {name: written_by, type: data, read_only: true, no_copy: true}
   list: {columns: [date, project, weather, workers, incidents], sort: date desc}
+
+- name: Subcontract
+  label: Subcontract
+  label_plural: Subcontracts
+  kind: master
+  module: construction
+  title_field: title
+  description: Work let to a supplier under a contract, at its value. Its claims are certified and billed through ERP, less the retention held from them.
+  fields:
+    - {name: title, type: data, required: true, in_list: true}
+    - {name: contract, type: link, to: ConstructionContract, required: true, in_list: true, in_filter: true}
+    - {name: supplier, type: link, to: Supplier, required: true, in_list: true, in_filter: true}
+    - {name: value, type: currency, required: true, in_list: true}
+    - {name: retention_percent, type: percent, description: "Held from each of its claims; the settings' when empty"}
+    - {name: certified_to_date, type: currency, read_only: true, no_copy: true, in_list: true}
+    - {name: retention_held, type: currency, read_only: true, no_copy: true, in_list: true}
+  numbering: {template: "SUB-{YYYY}-{seq:5}"}
+  list: {columns: [number, title, contract, supplier, value, certified_to_date], sort: created_at desc}
+
+- name: SubcontractClaim
+  label: Subcontract Claim
+  label_plural: Subcontract Claims
+  kind: master
+  module: construction
+  title_field: subcontract
+  description: The value of a subcontract's work done to date. Certified by someone other than whoever drew it up, what is due after retention and earlier claims is billed through ERP.
+  fields:
+    - {name: subcontract, type: link, to: Subcontract, required: true, in_list: true, in_filter: true}
+    - {name: period_to, type: date, required: true, in_list: true}
+    - {name: value_to_date, type: currency, required: true, in_list: true, description: "The work done to date, all of it"}
+    - {name: retention, type: currency, read_only: true, description: "Held to date"}
+    - {name: previous_certified, type: currency, read_only: true}
+    - {name: amount_due, type: currency, read_only: true, in_list: true}
+    - {name: status, type: select, options: [Draft, Certified], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
+    - {name: certified_by, type: email, read_only: true, no_copy: true}
+    - {name: purchase_invoice, type: link, to: PurchaseInvoice, read_only: true, no_copy: true}
+  actions:
+    - {name: certify, label: Certify It, permission: write, condition: "doc.status == 'Draft'"}
+  numbering: {template: "SCC-{YYYY}-{seq:5}"}
+  list: {columns: [number, subcontract, period_to, value_to_date, amount_due, status], sort: period_to desc}
+
