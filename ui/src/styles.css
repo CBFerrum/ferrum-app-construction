@@ -3,11 +3,3 @@
 @import "../../../ferrum/web/src/index.css";
 @source "../../../ferrum/web/src";
 @source ".";
-
-/* Contract tiles carry three figures: wider than the kit's default tile. */
-.cn-contracts {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
-}
-.cn-contracts .tile-meta {
-  align-self: stretch;
-}
