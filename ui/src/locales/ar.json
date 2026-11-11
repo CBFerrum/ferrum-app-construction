@@ -1,16 +1,16 @@
 {
-  "% · held": "% · محتجز",
+  "An estimate the customer accepts becomes one.": "يصبح التقدير الذي يقبله العميل عقدًا.",
+  "Certified": "معتمد",
   "Construction": "البناء",
   "Construction Settings": "إعدادات البناء",
   "Contracts": "العقود",
-  "Estimates sent, waiting for an answer ({length})": "تقديرات أُرسلت، بانتظار رد ({length})",
   "Estimates waiting": "تقديرات بالانتظار",
   "Go to the contracts": "اذهب إلى العقود",
+  "Held": "محتجز",
   "New estimate": "تقدير جديد",
-  "No contracts yet. An estimate the customer accepts becomes one.": "لا عقود بعد. يصبح التقدير الذي يقبله العميل عقدًا.",
+  "No contracts yet": "لا عقود بعد",
   "Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in": "تُفوتر مطالبات الإنجاز والمحتجزات المُفرج عنها عبر ERP: عيّن الشركة، والصنف الذي تُفوتر به، والمحتجز المحتفظ به في",
   "Set up the books first": "أعدّ الدفاتر أولًا",
   "Worth": "القيمة",
-  "{pending} waiting": "{pending} بالانتظار",
-  "· certified": "· معتمد"
+  "{pending} waiting": "{pending} بالانتظار"
 }
