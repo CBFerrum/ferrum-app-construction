@@ -5,7 +5,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, docPath, formatDecimal, t, isolate } from "@ferrum/client";
-import { Badge, EmptyState, ErrorState, PageLoading, statusTone, useShellTitle } from "@ferrum/kit";
+import { Badge, EmptyState, ErrorState, ListSkeleton, statusTone, useShellTitle } from "@ferrum/kit";
+
+// ConstructionContract.status as stored (packages/construction/entities).
+const CONTRACT_TONES = { Active: "green", Complete: "neutral" } as const;
 
 interface Row {
   id: string;
@@ -51,7 +54,7 @@ export function Home() {
       return { contracts, variations, claims, estimates, named: settings.length > 0 };
     },
   });
-  if (q.isPending) return <PageLoading />;
+  if (q.isPending) return <ListSkeleton className="np-page" />;
   if (q.isError) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
   const pending = waiting(q.data.variations, q.data.claims);
   return (
@@ -94,7 +97,7 @@ export function Home() {
               {t("Worth")} {isolate(money(c.contract_sum))} {t("· certified")} {certified(c)}{t("% · held")} {isolate(money(c.retention_held))}
             </span>
             <span className="row">
-              <Badge tone={statusTone(String(c.status))}>{isolate(String(c.status))}</Badge>
+              <Badge tone={statusTone(String(c.status), CONTRACT_TONES)}>{isolate(String(c.status))}</Badge>
               {(pending.get(c.id) ?? 0) > 0 && <Badge tone="amber">{t("{pending} waiting", { pending: String(pending.get(c.id)) })}</Badge>}
             </span>
           </Link>
