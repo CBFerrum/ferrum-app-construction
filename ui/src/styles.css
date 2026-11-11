@@ -4,14 +4,10 @@
 @source "../../../ferrum/web/src";
 @source ".";
 
-.np-page {
-  display: grid;
-  gap: 16px;
-  padding: 16px;
+/* Contract tiles carry three figures: wider than the kit's default tile. */
+.cn-contracts {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
 }
-
-.np-columns {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+.cn-contracts .tile-meta {
+  align-self: stretch;
 }

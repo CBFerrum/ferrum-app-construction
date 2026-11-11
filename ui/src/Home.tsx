@@ -5,7 +5,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, docPath, formatDecimal, t, isolate } from "@ferrum/client";
-import { Badge, EmptyState, ErrorState, ListSkeleton, statusTone, useShellTitle } from "@ferrum/kit";
+import { HardHat, Settings } from "lucide-react";
+import { Alert, Badge, ButtonLink, HomeSkeleton, LoadFailed, PageHead, Queue, QueueGrid, QueueItem, StatePanel, statusTone, Tile, TileGrid, useShellTitle } from "@ferrum/kit";
 
 // ConstructionContract.status as stored (packages/construction/entities).
 const CONTRACT_TONES = { Active: "green", Complete: "neutral" } as const;
@@ -54,55 +55,91 @@ export function Home() {
       return { contracts, variations, claims, estimates, named: settings.length > 0 };
     },
   });
-  if (q.isPending) return <ListSkeleton className="np-page" />;
-  if (q.isError) return <ErrorState error={q.error} onRetry={() => void q.refetch()} />;
+  const head = (
+    <PageHead
+      title={t("Contracts")}
+      actions={
+        <ButtonLink to="/e/Estimate/new" variant="primary" icon="plus">
+          {t("New estimate")}
+        </ButtonLink>
+      }
+    />
+  );
+  if (q.isPending) return (
+    <>
+      <PageHead title={t("Contracts")} />
+      <HomeSkeleton />
+    </>
+  );
+  if (q.isError) return <>{head}<LoadFailed error={q.error} onRetry={() => void q.refetch()} /></>;
   const pending = waiting(q.data.variations, q.data.claims);
+  const { contracts, estimates, named } = q.data;
+  const settings = <Link to="/e/ConstructionSettings">{t("Construction Settings")}</Link>;
+  const setup = t("Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in");
+  if (contracts.length === 0 && estimates.length === 0)
+    return (
+      <>
+        {head}
+        {named ? (
+          <StatePanel kind="empty" icon={HardHat} title={t("No contracts yet")} action={<ButtonLink to="/e/Estimate/new" variant="primary" icon="plus">{t("New estimate")}</ButtonLink>}>
+            {t("An estimate the customer accepts becomes one.")}
+          </StatePanel>
+        ) : (
+          <StatePanel kind="empty" icon={Settings} title={t("Set up the books first")} action={<ButtonLink to="/e/ConstructionSettings" variant="primary">{t("Construction Settings")}</ButtonLink>}>
+            {setup}{isolate(" ")}{settings}.
+          </StatePanel>
+        )}
+      </>
+    );
   return (
-    <div className="np-page">
-      <header className="row" style={{ justifyContent: "space-between" }}>
-        <h2>{t("Contracts")}</h2>
-        <Link to="/e/Estimate/new">{t("New estimate")}</Link>
-      </header>
-      {!q.data.named && (
-        <EmptyState title={t("Set up the books first")} icon="settings">
-          <p className="muted">
-            {t("Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in")}{isolate(" ")}
-            <Link to="/e/ConstructionSettings">{t("Construction Settings")}</Link>.
-          </p>
-        </EmptyState>
+    <>
+      {head}
+      <div className="grid gap-4">
+      {!named && (
+        <Alert tone="warning" action={<ButtonLink to="/e/ConstructionSettings">{t("Construction Settings")}</ButtonLink>}>
+          <strong className="block">{t("Set up the books first")}</strong>{setup}{isolate(" ")}{settings}.
+        </Alert>
       )}
-      {q.data.estimates.length > 0 && (
-        <section className="card card-pad stack" aria-label={t("Estimates waiting")}>
-          <h3>{t("Estimates sent, waiting for an answer ({length})", { length: q.data.estimates.length })}</h3>
-          <ul className="stack">
-            {q.data.estimates.map((e) => (
-              <li key={e.id}>
-                <Link to={`/e/Estimate/${e.id}`}>
-                  {isolate(String(e.number ?? ""))} · {isolate(String(e.title))} · {isolate(money(e.total))}
-                </Link>
-              </li>
+      {contracts.length > 0 && (
+        <TileGrid label={t("Contracts")} className="cn-contracts">
+          {contracts.map((c) => (
+            <Tile
+              key={c.id}
+              to={`/e/ConstructionContract/${c.id}`}
+              title={isolate(String(c.title))}
+              meta={
+                <>
+                  <span className="text-xs text-muted-foreground">{isolate(String(c.number ?? ""))}</span>
+                  <span className="mt-2 grid w-full grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 text-sm tabular-nums">
+                    <span className="text-muted-foreground">{t("Worth")}</span>
+                    <span className="text-end">{isolate(money(c.contract_sum))}</span>
+                    <span className="text-muted-foreground">{t("Certified")}</span>
+                    <span className="text-end">{certified(c)}%</span>
+                    <span className="text-muted-foreground">{t("Held")}</span>
+                    <span className="text-end">{isolate(money(c.retention_held))}</span>
+                  </span>
+                </>
+              }
+              status={
+                <span className="flex flex-wrap gap-1">
+                  <Badge tone={statusTone(String(c.status), CONTRACT_TONES)}>{isolate(String(c.status))}</Badge>
+                  {(pending.get(c.id) ?? 0) > 0 && <Badge tone="amber">{t("{pending} waiting", { pending: String(pending.get(c.id)) })}</Badge>}
+                </span>
+              }
+            />
+          ))}
+        </TileGrid>
+      )}
+      {estimates.length > 0 && (
+        <QueueGrid>
+          <Queue title={t("Estimates waiting")} count={estimates.length} more={{ to: "/e/Estimate", count: estimates.length - 5 }}>
+            {estimates.slice(0, 5).map((e) => (
+              <QueueItem key={e.id} to={`/e/Estimate/${e.id}`} title={isolate(String(e.title))} meta={`${isolate(String(e.number ?? ""))} · ${isolate(money(e.total))}`} />
             ))}
-          </ul>
-        </section>
+          </Queue>
+        </QueueGrid>
       )}
-      {q.data.named && q.data.contracts.length === 0 && q.data.estimates.length === 0 && (
-        <p className="muted">{t("No contracts yet. An estimate the customer accepts becomes one.")}</p>
-      )}
-      <div className="np-columns">
-        {q.data.contracts.map((c) => (
-          <Link key={c.id} className="card card-pad stack" to={`/e/ConstructionContract/${c.id}`}>
-            <strong>{isolate(String(c.title))}</strong>
-            <span className="faint">{isolate(String(c.number ?? ""))}</span>
-            <span>
-              {t("Worth")} {isolate(money(c.contract_sum))} {t("· certified")} {certified(c)}{t("% · held")} {isolate(money(c.retention_held))}
-            </span>
-            <span className="row">
-              <Badge tone={statusTone(String(c.status), CONTRACT_TONES)}>{isolate(String(c.status))}</Badge>
-              {(pending.get(c.id) ?? 0) > 0 && <Badge tone="amber">{t("{pending} waiting", { pending: String(pending.get(c.id)) })}</Badge>}
-            </span>
-          </Link>
-        ))}
       </div>
-    </div>
+    </>
   );
 }
