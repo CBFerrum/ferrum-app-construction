@@ -60,6 +60,7 @@ cd ui && npm run build && npm run check
 
 | Version | Highlights |
 |---|---|
+| **0.2.1** | The redesigned interface: the upgraded design system, shaped loading, told-apart states. |
 | **0.2.0** | Subcontracts and their claims; retention capped and released in halves; approvals by someone else; construction margin. |
 | **0.1.15** | Its names in Arabic and Hindi. |
 | **0.1.14** | The assistant knows its records. |
