@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { api, docPath, formatDecimal, t, isolate } from "@ferrum/client";
 import { HardHat, Settings } from "lucide-react";
-import { Alert, Badge, ButtonLink, HomeSkeleton, LoadFailed, PageHead, Queue, QueueGrid, QueueItem, StatePanel, statusTone, Tile, TileGrid, useShellTitle } from "@ferrum/kit";
+import { Alert, Badge, ButtonLink, HomeSkeleton, LoadFailed, PageHead, PageStack, Queue, QueueGrid, QueueItem, StatePanel, statusTone, Tile, TileGrid, useShellTitle } from "@ferrum/kit";
 
 // ConstructionContract.status as stored (packages/construction/entities).
 const CONTRACT_TONES = { Active: "green", Complete: "neutral" } as const;
@@ -65,20 +65,15 @@ export function Home() {
       }
     />
   );
-  if (q.isPending) return (
-    <>
-      <PageHead title={t("Contracts")} />
-      <HomeSkeleton />
-    </>
-  );
-  if (q.isError) return <>{head}<LoadFailed error={q.error} onRetry={() => void q.refetch()} /></>;
+  if (q.isPending) return <PageStack><PageHead title={t("Contracts")} /><HomeSkeleton /></PageStack>;
+  if (q.isError) return <PageStack>{head}<LoadFailed error={q.error} onRetry={() => void q.refetch()} /></PageStack>;
   const pending = waiting(q.data.variations, q.data.claims);
   const { contracts, estimates, named } = q.data;
   const settings = <Link to="/e/ConstructionSettings">{t("Construction Settings")}</Link>;
   const setup = t("Progress claims and released retention are invoiced through ERP: set the company, the item they are invoiced as and the retention held in");
   if (contracts.length === 0 && estimates.length === 0)
     return (
-      <>
+      <PageStack>
         {head}
         {named ? (
           <StatePanel kind="empty" icon={HardHat} title={t("No contracts yet")} action={<ButtonLink to="/e/Estimate/new" variant="primary" icon="plus">{t("New estimate")}</ButtonLink>}>
@@ -89,42 +84,34 @@ export function Home() {
             {setup}{isolate(" ")}{settings}.
           </StatePanel>
         )}
-      </>
+      </PageStack>
     );
   return (
-    <>
+    <PageStack>
       {head}
-      <div className="grid gap-4">
       {!named && (
         <Alert tone="warning" action={<ButtonLink to="/e/ConstructionSettings">{t("Construction Settings")}</ButtonLink>}>
           <strong className="block">{t("Set up the books first")}</strong>{setup}{isolate(" ")}{settings}.
         </Alert>
       )}
       {contracts.length > 0 && (
-        <TileGrid label={t("Contracts")} className="cn-contracts">
+        <TileGrid label={t("Contracts")} min="lg">
           {contracts.map((c) => (
             <Tile
               key={c.id}
               to={`/e/ConstructionContract/${c.id}`}
               title={isolate(String(c.title))}
-              meta={
-                <>
-                  <span className="text-xs text-muted-foreground">{isolate(String(c.number ?? ""))}</span>
-                  <span className="mt-2 grid w-full grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 text-sm tabular-nums">
-                    <span className="text-muted-foreground">{t("Worth")}</span>
-                    <span className="text-end">{isolate(money(c.contract_sum))}</span>
-                    <span className="text-muted-foreground">{t("Certified")}</span>
-                    <span className="text-end">{certified(c)}%</span>
-                    <span className="text-muted-foreground">{t("Held")}</span>
-                    <span className="text-end">{isolate(money(c.retention_held))}</span>
-                  </span>
-                </>
-              }
+              meta={<span>{isolate(String(c.number ?? ""))}</span>}
+              figures={[
+                { label: t("Worth"), value: isolate(money(c.contract_sum)) },
+                { label: t("Certified"), value: `${certified(c)}%` },
+                { label: t("Held"), value: isolate(money(c.retention_held)) },
+              ]}
               status={
-                <span className="flex flex-wrap gap-1">
+                <>
                   <Badge tone={statusTone(String(c.status), CONTRACT_TONES)}>{isolate(String(c.status))}</Badge>
                   {(pending.get(c.id) ?? 0) > 0 && <Badge tone="amber">{t("{pending} waiting", { pending: String(pending.get(c.id)) })}</Badge>}
-                </span>
+                </>
               }
             />
           ))}
@@ -139,7 +126,6 @@ export function Home() {
           </Queue>
         </QueueGrid>
       )}
-      </div>
-    </>
+    </PageStack>
   );
 }
