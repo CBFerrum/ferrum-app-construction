@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+Needs the same platform as 0.3.0. No database change. Interface only, `ui/dist` rebuilt with Ferrum-Frontend `06bd1a2`.
+
+- The Arabic and Hindi names of Reject It, Decided On, Decided By and Certified By, which 0.3.0 removed, are gone.
+- The two routes to the screens apps no longer have (`apps/:app/settings`, `x/:app/:page`) are gone.
+- The page starts through the frontend's `mountApp`, which keeps lists fresh for 30 seconds (Construction said 5); the
+  interface lint has no baseline file any more.
+
 ## 0.3.0
 
 Approvals by someone else (FEO-049) are the platform's approval policies (package.yaml, `approvals`), not the app's
