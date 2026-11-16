@@ -40,3 +40,27 @@ roles:
       - {entity: SubcontractClaim, read: true, write: true, create: true}
       - {entity: SiteDiary, read: true, write: true, create: true}
       - {entity: Project, read: true}
+
+# Approvals by someone else (FEO-049), the platform's (docs/api.md, "Approvals"): a Contracts Manager other than whoever
+# raised the variation or drew up the claim. Submit It asks in the name of whoever made the record, so the policy's
+# "never whoever asked" is "never whoever made it"; once approved, the hidden action does the work (the variation
+# joins the contract; the claim is certified and invoiced). A change to a claim's measure while it waits starts its
+# approval again. A workspace edits these in Customize (more steps, value bands, escalation) without code.
+approvals:
+  - entity: Variation
+    on: {action: approve}
+    policy:
+      steps:
+        - {label: Contracts Manager, approvers: {role: Contracts Manager}}
+  - entity: ProgressClaim
+    on: {action: certify}
+    policy:
+      steps:
+        - {label: Contracts Manager, approvers: {role: Contracts Manager}}
+      reset_on: [period_to, lines]
+  - entity: SubcontractClaim
+    on: {action: certify}
+    policy:
+      steps:
+        - {label: Contracts Manager, approvers: {role: Contracts Manager}}
+      reset_on: [period_to, value_to_date]

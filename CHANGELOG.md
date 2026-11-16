@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+Approvals by someone else (FEO-049) are the platform's approval policies (package.yaml, `approvals`), not the app's
+own checks.
+
+- **Variations.** Submit It asks for approval in the name of whoever raised the variation; a Contracts Manager other
+  than them decides under Approvals, and the hidden Approve It then adds it to the contract. A rejection (with a
+  reason) makes it Rejected and a request taken back sends it to its draft, at the next upkeep. Reject It, Decided On
+  and Decided By are gone: who decided, when and why is the request's record. One that would make the contract worth
+  less than what is certified is refused when submitted.
+- **Progress and subcontract claims.** Submit It (new) refuses at once what would not certify, then asks a Contracts
+  Manager other than whoever drew the claim up; the hidden Certify It certifies and invoices once approved. A change
+  to a claim's measure (lines or period; a subcontract claim's value to date) while it waits starts its approval
+  again. Certified By is gone.
+- The hidden Approve It and Certify It are asked only in the name of whoever made the record (their condition), so
+  asking them directly is no way around Submit It. A record whose maker is no longer a member is not submitted: make
+  it again.
+- An administrator without the Contracts Manager role no longer decides these; give the role to whoever decides.
+- Upkeep follows a variation's request that ends without approval.
+
 ## 0.2.2
 
 Rebuilt with Ferrum-Frontend 9e7190c, the design system as tuned after the landed build was reviewed. The left menu's icons are chosen so that none repeats on more than three rows and each fits its row; their drawings load beside the first page instead of inside it, so the page starts lighter; a row that scrolls sideways fades at the edge where there is more, in every browser and with reduced motion; a printed record leaves out empty fields and keeps its totals with the table; menus and popovers sit inside the page's landmarks for assistive technology; a selection bar folds what does not fit into More on a narrow screen. Nothing else changes.

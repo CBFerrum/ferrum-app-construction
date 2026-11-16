@@ -1,17 +1,19 @@
 //! Contracts and variations. A contract is worth the sum of its lines. Once work on it is certified
 //! or varied, its lines change only through approved variations, each added as a line of its own;
 //! one that would make it worth less than what is certified is refused. Completing a contract
-//! certified in full invoices the retention held.
+//! certified in full invoices the retention held. A variation is approved by the platform's policy on
+//! its hidden Approve It (package.yaml); upkeep follows a request that ends otherwise.
 
 use crate::{decides, invoice, obj, status, sum};
 use async_trait::async_trait;
 use chrono::Utc;
 use ferrum_domain::flow::created;
 use ferrum_domain::util::{d, elevated, id, money, rows, s};
-use ferrum_kernel::{Doc, DocHook, Error, HookCtx, Result};
+use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
 use rust_decimal::Decimal;
 use serde_json::{Value, json};
 use std::collections::HashSet;
+use uuid::Uuid;
 
 pub struct ContractHook;
 
@@ -140,6 +142,37 @@ async fn practical_completion(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> 
     Ok(out)
 }
 
+/// Refused when `contract` cannot take a variation of `amount`: it is complete, or it would be worth less than what
+/// is certified of it.
+fn takes(contract: &Doc, amount: Decimal) -> Result<()> {
+    if status(contract) == "Complete" {
+        return Err(Error::invalid("the contract is complete: it takes no more variations"));
+    }
+    let worth = d(contract, "contract_sum") + amount;
+    if worth < d(contract, "certified_to_date") {
+        return Err(Error::invalid(format!("the contract would be worth {worth}, less than the {} certified", d(contract, "certified_to_date"))));
+    }
+    Ok(())
+}
+
+/// Variations submitted whose approval ended without approving them: rejected, or back to their draft when it was
+/// recalled, cancelled, or approved but refused when done (the contract could not take it then).
+pub(crate) async fn follow_approvals(k: &Kernel, ctx: &Ctx, tx: &mut Tx) -> Result<()> {
+    let ended: Vec<(Uuid, String)> = sqlx::query_as(
+        "select v.id, r.status from e_variation v join lateral (select r.status from approval_request r where r.tenant_id = v.tenant_id \
+           and r.entity = 'Variation' and r.record_id = v.id order by r.created_at desc limit 1) r on true \
+         where v.tenant_id = $1 and v.status = 'Submitted' and r.status in ('rejected', 'recalled', 'cancelled', 'failed') order by v.id for update of v",
+    )
+    .bind(ctx.tenant)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (variation, ended) in ended {
+        let to = if ended == "rejected" { "Rejected" } else { "Draft" };
+        k.set_values_tx(ctx, tx, "Variation", variation, obj(json!({"status": to}))).await?;
+    }
+    Ok(())
+}
+
 pub struct VariationHook;
 
 #[async_trait]
@@ -181,38 +214,21 @@ impl DocHook for VariationHook {
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
         let variation = id(doc, "id").ok_or_else(|| Error::internal("a variation without an id"))?;
         let system = elevated(hc.ctx);
-        let by = hc.ctx.email.clone();
-        let decided = |to: &str| obj(json!({"status": to, "decided_on": Utc::now().date_naive().to_string(), "decided_by": by}));
+        let contract_id = id(doc, "contract").ok_or_else(|| Error::field("contract", "is required"))?;
+        let amount = d(doc, "amount");
         match name {
             "submit_variation" => {
+                // Refused at once when the contract could not take it; then asked of a Contracts Manager.
+                let contract = hc.kernel.get_tx(&system, hc.tx, "ConstructionContract", contract_id, false).await?;
+                takes(&contract, amount)?;
                 hc.kernel.set_values_tx(&system, hc.tx, "Variation", variation, obj(json!({"status": "Submitted"}))).await?;
-                Ok(Some(json!({"status": "Submitted"})))
-            }
-            "reject" => {
-                if !decides(hc.ctx) {
-                    return Err(Error::Forbidden("a Contracts Manager decides a variation".into()));
-                }
-                hc.kernel.set_values_tx(&system, hc.tx, "Variation", variation, decided("Rejected")).await?;
-                Ok(Some(json!({"status": "Rejected"})))
+                crate::ask(hc, "Variation", variation, doc, "approve", "Submitted").await.map(Some)
             }
             "approve" => {
-                if !decides(hc.ctx) {
-                    return Err(Error::Forbidden("a Contracts Manager decides a variation".into()));
-                }
-                // Independently: not by whoever raised it (FEO-049).
-                if crate::raised_by(doc, hc.ctx) {
-                    return Err(Error::Forbidden("someone other than whoever raised a variation approves it".into()));
-                }
-                let contract_id = id(doc, "contract").ok_or_else(|| Error::field("contract", "is required"))?;
+                // Approved under the policy: it joins the contract, held while it does.
                 let contract = hc.kernel.get_tx(&system, hc.tx, "ConstructionContract", contract_id, true).await?;
-                if status(&contract) == "Complete" {
-                    return Err(Error::invalid("the contract is complete: it takes no more variations"));
-                }
-                let amount = d(doc, "amount");
+                takes(&contract, amount)?;
                 let worth = d(&contract, "contract_sum") + amount;
-                if worth < d(&contract, "certified_to_date") {
-                    return Err(Error::invalid(format!("the contract would be worth {worth}, less than the {} certified", d(&contract, "certified_to_date"))));
-                }
                 let mut lines: Vec<Value> = rows(&contract, "lines").into_iter().map(Value::Object).collect();
                 lines
                     .push(json!({"code": format!("V-{}", s(doc, "number").unwrap_or_default()), "description": s(doc, "description"), "value": money(amount)}));
@@ -220,7 +236,7 @@ impl DocHook for VariationHook {
                 hc.kernel
                     .update_tx(&system, hc.tx, "ConstructionContract", contract_id, obj(json!({"lines": lines, "variations_sum": money(varied)})), None)
                     .await?;
-                hc.kernel.set_values_tx(&system, hc.tx, "Variation", variation, decided("Approved")).await?;
+                hc.kernel.set_values_tx(&system, hc.tx, "Variation", variation, obj(json!({"status": "Approved"}))).await?;
                 Ok(Some(json!({"status": "Approved", "contract_sum": money(worth)})))
             }
             _ => Ok(None),
