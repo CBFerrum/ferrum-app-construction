@@ -101,13 +101,11 @@
     - {name: reason, type: select, options: [Client Request, Design Change, Site Condition, Omission], default: Client Request, in_list: true}
     - {name: amount, type: currency, required: true, in_list: true, description: "Below zero for work taken out"}
     - {name: status, type: select, options: [Draft, Submitted, Approved, Rejected], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
-    - {name: decided_on, type: date, read_only: true, no_copy: true}
-    - {name: decided_by, type: data, read_only: true, no_copy: true}
     - {name: details, type: text}
   actions:
     - {name: submit_variation, label: Submit It, permission: write, condition: "doc.status == 'Draft'"}
-    - {name: approve, label: Approve It, permission: write, condition: "doc.status == 'Submitted'"}
-    - {name: reject, label: Reject It, permission: write, condition: "doc.status == 'Submitted'"}
+    - {name: approve, label: Approve It, permission: write, hidden: true, condition: "doc.status == 'Submitted' && doc.created_by == user.id",
+       condition_message: "Submit It asks for a variation's approval, in the name of whoever raised it"}
   numbering: {template: "VAR-{YYYY}-{seq:5}"}
   list: {columns: [number, contract, description, amount, status], sort: created_at desc}
 
@@ -139,7 +137,9 @@
     - {name: status, type: select, options: [Draft, Certified], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
     - {name: sales_invoice, type: link, to: SalesInvoice, read_only: true, no_copy: true}
   actions:
-    - {name: certify, label: Certify It, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: submit_claim, label: Submit It, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: certify, label: Certify It, permission: write, hidden: true, condition: "doc.status == 'Draft' && doc.created_by == user.id",
+       condition_message: "Submit It asks for a claim's certification, in the name of whoever drew it up"}
   numbering: {template: "PC-{YYYY}-{seq:5}"}
   list: {columns: [number, contract, period_to, value_to_date, amount_due, status], sort: period_to desc}
 
@@ -195,10 +195,11 @@
     - {name: previous_certified, type: currency, read_only: true}
     - {name: amount_due, type: currency, read_only: true, in_list: true}
     - {name: status, type: select, options: [Draft, Certified], default: Draft, read_only: true, no_copy: true, in_list: true, in_filter: true}
-    - {name: certified_by, type: email, read_only: true, no_copy: true}
     - {name: purchase_invoice, type: link, to: PurchaseInvoice, read_only: true, no_copy: true}
   actions:
-    - {name: certify, label: Certify It, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: submit_claim, label: Submit It, permission: write, condition: "doc.status == 'Draft'"}
+    - {name: certify, label: Certify It, permission: write, hidden: true, condition: "doc.status == 'Draft' && doc.created_by == user.id",
+       condition_message: "Submit It asks for a claim's certification, in the name of whoever drew it up"}
   numbering: {template: "SCC-{YYYY}-{seq:5}"}
   list: {columns: [number, subcontract, period_to, value_to_date, amount_due, status], sort: period_to desc}
 

@@ -9,6 +9,10 @@
 //!   claims is invoiced to the customer.
 //! * `diary`: a day on site, one to a project.
 //!
+//! A variation's approval and a claim's certification are the platform's approval policies (package.yaml,
+//! `approvals`): Submit It asks, in the name of whoever made the record ([`ask`]), and the hidden action does the
+//! work once a Contracts Manager other than them approves.
+//!
 //! This app's own design; no code was copied (docs/PROVENANCE.md). Hooks are registered per entity,
 //! so a workspace without the `construction` package never runs them.
 
@@ -21,9 +25,9 @@ mod subcontracts;
 
 use ferrum_domain::reports::ReportSource;
 use ferrum_domain::util::{d, s};
-use ferrum_kernel::{Ctx, Doc, Error, HookRegistry, Kernel, Result, Tx};
+use ferrum_kernel::{Ctx, Doc, Error, HookCtx, HookRegistry, Kernel, Result, Tx};
 use rust_decimal::Decimal;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -55,9 +59,29 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
     vec![Arc::new(reports::Margin)]
 }
 
-/// Upkeep: nothing runs by itself.
-pub async fn maintenance(_k: &Kernel) -> Result<()> {
-    Ok(())
+/// Upkeep: variations whose approval ended without approving them moved on.
+pub async fn maintenance(k: &Kernel) -> Result<()> {
+    let mut tx = k.db.system_tx().await?;
+    let tenants: Vec<Uuid> = sqlx::query_scalar("select id from tenant where status = 'active' order by id").fetch_all(&mut *tx).await?;
+    tx.commit().await?;
+    let mut first_error: Option<Error> = None;
+    for tenant in tenants {
+        let run = async {
+            let schema = k.registry.schema(tenant).await?;
+            if !schema.packages.iter().any(|p| p == "construction") {
+                return Ok(());
+            }
+            let ctx = Ctx::system(tenant, schema);
+            let mut tx = k.db.tenant_tx(tenant).await?;
+            contracts::follow_approvals(k, &ctx, &mut tx).await?;
+            tx.commit().await?;
+            Ok::<(), Error>(())
+        };
+        if let Err(e) = run.await {
+            first_error.get_or_insert(e);
+        }
+    }
+    first_error.map_or(Ok(()), Err)
 }
 
 /// A document from JSON.
@@ -98,9 +122,25 @@ pub(crate) async fn invoice(k: &Kernel, ctx: &Ctx, tx: &mut Tx, customer: &str, 
     .await
 }
 
-/// Whether `ctx` raised `doc`: what they raise, someone else approves or certifies (FEO-049).
-pub(crate) fn raised_by(doc: &Doc, ctx: &Ctx) -> bool {
-    doc.get("created_by").and_then(Value::as_str) == Some(ctx.user.to_string().as_str())
+/// Asks for the approval `action` of record `id` (`doc`) carries, in the name of whoever made the record: the policy
+/// never lets whoever asked decide, so whoever raised or drew it up does not (FEO-049). The action's condition admits
+/// no one else as the asker, so asking it directly changes nothing. The answer: the record's status while it waits
+/// (`waiting`) and the request, or the action's own when the workspace's policy asked no one.
+pub(crate) async fn ask(hc: &mut HookCtx<'_>, entity: &str, id: Uuid, doc: &Doc, action: &str, waiting: &str) -> Result<Value> {
+    let maker = doc.get("created_by").and_then(Value::as_str).and_then(|u| u.parse::<Uuid>().ok()).filter(|u| *u != hc.ctx.user);
+    let who = match maker {
+        Some(u) => hc
+            .kernel
+            .load_ctx(hc.ctx.tenant, u, None, hc.ctx.request_id.clone())
+            .await
+            .map_err(|_| Error::invalid("whoever made it is no longer here to ask for its approval: make it again"))?,
+        None => hc.ctx.clone(),
+    };
+    let out = hc.kernel.run_action_tx(&who, hc.tx, entity, id, action, &json!({})).await?;
+    Ok(match out.get("_approval") {
+        Some(asked) => json!({"status": waiting, "approval": asked}),
+        None => out,
+    })
 }
 
 /// Whether `ctx` decides for the contracts: a Contracts Manager, or an administrator.

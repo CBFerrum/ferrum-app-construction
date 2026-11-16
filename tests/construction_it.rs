@@ -1,11 +1,12 @@
 //! A building job (FERRUM-INDUSTRY-007) against a real PostgreSQL
 //! (`FERRUM_CONSTRUCTION_TEST_DATABASE_URL`, default `postgres://ferrum:ferrum@localhost:5432/ferrum_construction_test`;
 //! reset first): an estimate priced with a markup, sent and accepted into a contract worth its total;
-//! variations submitted on site and decided by the contracts manager; progress claims measured line
-//! by line, certified less retention and earlier claims, and invoiced through ERP; certified work not
-//! taken back; a draft made stale by another claim recomputed when certified; completing a contract
-//! certified in full, releasing its retention; the site diary; and who may do what (the site
-//! measures, the contracts manager certifies and completes).
+//! variations submitted on site and approved, through the platform's approval, by a contracts manager
+//! other than whoever raised them; progress claims measured line by line, submitted, certified the same
+//! way less retention and earlier claims, and invoiced through ERP, a change while one waits starting
+//! its approval again; certified work not taken back; a draft made stale by another claim recomputed
+//! when certified; completing a contract certified in full, releasing its retention; the site diary;
+//! and who may do what (the site measures, the contracts manager certifies and completes).
 
 use ferrum_kernel::secret::SecretKey;
 use ferrum_kernel::tenant::NewTenant;
@@ -58,6 +59,13 @@ impl T {
     }
     async fn act(&self, ctx: &Ctx, entity: &str, id: Uuid, action: &str) -> Result<Value, Error> {
         self.k.run_action(ctx, entity, id, action, Value::Null).await
+    }
+    /// Submit It by `by` (the approval asked in the name of whoever made the record), then approved by `decider`: the
+    /// record as it then is.
+    async fn passed(&self, by: &Ctx, decider: &Ctx, entity: &str, id: Uuid, submit: &str) -> Doc {
+        self.act(by, entity, id, submit).await.unwrap_or_else(|e| panic!("{submit}: {e:?}"));
+        self.k.decide_approval(decider, entity, id, true, None).await.unwrap_or_else(|e| panic!("decide {entity}: {e:?}"));
+        self.get(entity, id).await
     }
     /// The invoice a result points at: (customer, total).
     async fn invoiced(&self, created: &Value) -> (String, f64) {
@@ -184,23 +192,37 @@ async fn scenario() {
     let variation = |desc: &str, amount: &str| json!({"contract": contract.to_string(), "description": desc, "amount": amount, "reason": "Site Condition"});
     refused(t.k.insert(&sm, "Variation", obj(variation("Nothing", "0"))).await, "invalid", "adds or takes out");
     let drain = uid(&t.insert(&sm, "Variation", variation("Extra drainage", "5500")).await["id"]);
-    t.act(&sm, "Variation", drain, "submit_variation").await.unwrap();
-    refused(t.act(&sm, "Variation", drain, "approve").await, "forbidden", "Contracts Manager");
+    let asked = t.act(&sm, "Variation", drain, "submit_variation").await.unwrap();
+    assert_eq!(asked["approval"]["steps"][0]["label"], "Contracts Manager", "asked of a Contracts Manager: {asked}");
+    refused(t.k.decide_approval(&sm, "Variation", drain, true, None).await, "forbidden", "");
     refused(t.k.update(&sm, "Variation", drain, obj(json!({"amount": "9000"})), None).await, "invalid", "keeps its terms");
-    t.act(&cm, "Variation", drain, "approve").await.expect("approved");
+    t.k.decide_approval(&cm, "Variation", drain, true, None).await.expect("approved");
     let drain_doc = t.get("Variation", drain).await;
-    assert_eq!((drain_doc["status"].as_str(), drain_doc["decided_by"].as_str()), (Some("Approved"), Some("cm@brick.test")));
+    assert_eq!(drain_doc["status"], "Approved");
+    let record = t.k.approval_of(&t.admin, "Variation", drain).await.unwrap();
+    assert_eq!(record["decisions"][0]["decider"], json!(cm.user.to_string()), "who approved it is the request's record");
     let vcode = format!("V-{}", drain_doc["number"].as_str().unwrap());
     let c = t.get("ConstructionContract", contract).await;
     assert_eq!((dec(&c["contract_sum"]), dec(&c["original_sum"]), dec(&c["variations_sum"])), (115500.0, 110000.0, 5500.0));
     assert_eq!(c["lines"].as_array().unwrap().last().unwrap()["code"], vcode.as_str());
+    // What someone raises, someone else approves (FEO-049): asked in its raiser's name, even when another submits it.
     let mine = uid(&t.insert(&cm, "Variation", variation("Own idea", "100")).await["id"]);
-    t.act(&cm, "Variation", mine, "submit_variation").await.unwrap();
-    refused(t.act(&cm, "Variation", mine, "approve").await, "forbidden", "someone other than whoever raised");
-    t.act(&cm, "Variation", mine, "reject").await.unwrap();
+    let cm2 = t.user("cm2@brick.test", &["Contracts Manager"]).await;
+    let theirs = t.act(&cm2, "Variation", mine, "submit_variation").await.unwrap();
+    assert_eq!(theirs["approval"]["requester"], json!(cm.user.to_string()), "asked in the name of whoever raised it: {theirs}");
+    // The platform leaves the requester out of who may decide: a Contracts Manager, but not this one.
+    refused(t.k.decide_approval(&cm, "Variation", mine, true, None).await, "forbidden", "not yours to decide");
+    t.k.recall_approval(&cm, "Variation", mine).await.expect("whoever raised it takes it back");
+    // Asked again directly, before upkeep, by someone else: refused, else its raiser could decide it.
+    refused(t.act(&cm2, "Variation", mine, "approve").await, "invalid", "in the name of whoever raised it");
+    ferrum_app_construction::maintenance(&k).await.unwrap();
+    assert_eq!(t.get("Variation", mine).await["status"], "Draft", "back to its draft");
     let paint = uid(&t.insert(&sm, "Variation", variation("Gold paint", "20000")).await["id"]);
     t.act(&sm, "Variation", paint, "submit_variation").await.unwrap();
-    t.act(&cm, "Variation", paint, "reject").await.unwrap();
+    refused(t.k.decide_approval(&cm, "Variation", paint, false, None).await, "invalid", "a reason is needed");
+    t.k.decide_approval(&cm, "Variation", paint, false, Some("Not in the budget")).await.unwrap();
+    ferrum_app_construction::maintenance(&k).await.unwrap();
+    assert_eq!(t.get("Variation", paint).await["status"], "Rejected");
     assert_eq!(dec(&t.get("ConstructionContract", contract).await["contract_sum"]), 115500.0, "a rejected variation changes nothing");
 
     // ───────────── progress claims ─────────────
@@ -210,13 +232,19 @@ async fn scenario() {
     assert_eq!((dec(&pc1["value_to_date"]), dec(&pc1["retention"]), dec(&pc1["amount_due"])), (60500.0, 3025.0, 57475.0));
     assert_eq!(pc1["lines"].as_array().unwrap().len(), 4, "every line of the contract, the variation's too");
     let pc1 = uid(&pc1["id"]);
-    refused(t.act(&sm, "ProgressClaim", pc1, "certify").await, "forbidden", "a Contracts Manager certifies");
+    t.act(&sm, "ProgressClaim", pc1, "submit_claim").await.expect("asked");
+    refused(t.k.decide_approval(&sm, "ProgressClaim", pc1, true, None).await, "forbidden", "");
     // What someone draws up, someone else certifies; what someone raises, someone else approves (FEO-049).
     let own = uid(&t.insert(&cm, "ProgressClaim", claim("2026-03-31", json!([{"code": "1", "percent_complete": "10"}]))).await["id"]);
-    refused(t.act(&cm, "ProgressClaim", own, "certify").await, "forbidden", "someone other than whoever drew up");
+    refused(t.act(&sm, "ProgressClaim", own, "certify").await, "invalid", "in the name of whoever drew it up");
+    t.act(&cm, "ProgressClaim", own, "submit_claim").await.expect("asked");
+    refused(t.k.decide_approval(&cm, "ProgressClaim", own, true, None).await, "forbidden", "not yours to decide");
+    t.k.recall_approval(&cm, "ProgressClaim", own).await.expect("taken back");
     t.k.delete(&a, "ProgressClaim", own, None).await.expect("a draft goes");
-    let certified = t.act(&cm, "ProgressClaim", pc1, "certify").await.expect("certified");
-    assert_eq!(t.invoiced(&certified["sales_invoice"]).await, (acme.to_string(), 57475.0));
+    t.k.decide_approval(&cm, "ProgressClaim", pc1, true, None).await.expect("certified");
+    let certified = t.get("ProgressClaim", pc1).await;
+    assert_eq!(certified["status"], "Certified");
+    assert_eq!(t.invoiced(&json!({"id": certified["sales_invoice"]})).await, (acme.to_string(), 57475.0));
     let c = t.get("ConstructionContract", contract).await;
     assert_eq!((dec(&c["certified_to_date"]), dec(&c["retention_held"])), (60500.0, 3025.0));
     refused(t.k.update(&cm, "ProgressClaim", pc1, obj(json!({"period_to": "2026-04-01"})), None).await, "invalid", "not changed");
@@ -249,19 +277,30 @@ async fn scenario() {
     let pc3 = t.insert(&sm, "ProgressClaim", claim("2026-05-31", json!([{"code": "3", "percent_complete": "100"}]))).await;
     assert_eq!(dec(&pc3["previous_certified"]), 57475.0, "drafted while the April claim was a draft");
     let pc3 = uid(&pc3["id"]);
-    let c2 = t.act(&cm, "ProgressClaim", pc2, "certify").await.unwrap();
-    assert_eq!(t.invoiced(&c2["sales_invoice"]).await.1, 36575.0);
-    let c3 = t.act(&cm, "ProgressClaim", pc3, "certify").await.unwrap();
+    // A change to what a waiting claim measures starts its approval again.
+    t.act(&sm, "ProgressClaim", pc2, "submit_claim").await.expect("asked");
+    t.k.update(&sm, "ProgressClaim", pc2, obj(json!({"period_to": "2026-04-29"})), None).await.expect("changed while it waits");
+    let mut tx = k.db.tenant_tx(tenant).await.unwrap();
+    let resets: i64 = sqlx::query_scalar("select count(*) from audit_event where tenant_id = $1 and record_id = $2 and action = 'approval:reset'")
+        .bind(tenant)
+        .bind(pc2)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(resets, 1, "its approval started again");
+    t.k.decide_approval(&cm, "ProgressClaim", pc2, true, None).await.expect("certified");
+    let c2 = t.get("ProgressClaim", pc2).await;
+    assert_eq!(t.invoiced(&json!({"id": c2["sales_invoice"]})).await.1, 36575.0);
+    let c3 = t.passed(&sm, &cm, "ProgressClaim", pc3, "submit_claim").await;
     assert_eq!(dec(&c3["amount_due"]), 15675.0, "115500 less 5775 held less the 94050 certified before");
-    assert_eq!(t.invoiced(&c3["sales_invoice"]).await.1, 15675.0);
-    let pc3_doc = t.get("ProgressClaim", pc3).await;
-    assert_eq!(dec(&pc3_doc["previous_certified"]), 94050.0, "what is kept is what was certified");
+    assert_eq!(t.invoiced(&json!({"id": c3["sales_invoice"]})).await.1, 15675.0);
+    assert_eq!(dec(&c3["previous_certified"]), 94050.0, "what is kept is what was certified");
     let pc4 = uid(&t.insert(&sm, "ProgressClaim", claim("2026-06-30", json!([]))).await["id"]);
-    refused(t.act(&cm, "ProgressClaim", pc4, "certify").await, "invalid", "adds no work");
+    refused(t.act(&sm, "ProgressClaim", pc4, "submit_claim").await, "invalid", "adds no work");
     // A variation that would make the contract worth less than what is certified is refused.
     let cut = uid(&t.insert(&sm, "Variation", variation("Smaller roof", "-500")).await["id"]);
-    t.act(&sm, "Variation", cut, "submit_variation").await.unwrap();
-    refused(t.act(&cm, "Variation", cut, "approve").await, "invalid", "less than the 115500");
+    refused(t.act(&sm, "Variation", cut, "submit_variation").await, "invalid", "less than the 115500");
 
     // ───────────── a subcontract and its claims (FEO-049) ─────────────
     let steelco = uid(&t.insert(&a, "Supplier", json!({"supplier_name": "Steel Co"})).await["id"]);
@@ -274,13 +313,15 @@ async fn scenario() {
     let sc1 = t.insert(&sm, "SubcontractClaim", sub_claim("2026-03-31", "12000")).await;
     assert_eq!((dec(&sc1["retention"]), dec(&sc1["amount_due"])), (600.0, 11400.0));
     let sc1 = uid(&sc1["id"]);
-    refused(t.act(&sm, "SubcontractClaim", sc1, "certify").await, "forbidden", "a Contracts Manager certifies");
-    let billed = t.act(&cm, "SubcontractClaim", sc1, "certify").await.expect("certified");
-    let bill = t.get("PurchaseInvoice", uid(&billed["purchase_invoice"]["id"])).await;
+    t.act(&sm, "SubcontractClaim", sc1, "submit_claim").await.expect("asked");
+    refused(t.k.decide_approval(&sm, "SubcontractClaim", sc1, true, None).await, "forbidden", "");
+    t.k.decide_approval(&cm, "SubcontractClaim", sc1, true, None).await.expect("certified");
+    let billed = t.get("SubcontractClaim", sc1).await;
+    let bill = t.get("PurchaseInvoice", uid(&billed["purchase_invoice"])).await;
     assert_eq!((bill["supplier"].as_str(), dec(&bill["net_total"])), (Some(steelco.to_string().as_str()), 11400.0), "billed through ERP, less retention");
     refused(t.k.insert(&sm, "SubcontractClaim", obj(sub_claim("2026-04-30", "10000"))).await, "invalid", "work certified is not taken back");
     let sc2 = uid(&t.insert(&sm, "SubcontractClaim", sub_claim("2026-04-30", "30000")).await["id"]);
-    let done_sub = t.act(&cm, "SubcontractClaim", sc2, "certify").await.unwrap();
+    let done_sub = t.passed(&sm, &cm, "SubcontractClaim", sc2, "submit_claim").await;
     assert_eq!(dec(&done_sub["amount_due"]), 17100.0, "30000 less 1500 held less the 11400 before");
     let sub = t.get("Subcontract", steel).await;
     assert_eq!((dec(&sub["certified_to_date"]), dec(&sub["retention_held"])), (30000.0, 1500.0));
@@ -307,7 +348,7 @@ async fn scenario() {
         .insert(&sm, "ProgressClaim", json!({"contract": small.to_string(), "period_to": "2026-04-30", "lines": [{"code": "1", "percent_complete": "50"}]}))
         .await["id"]);
     assert_eq!(dec(&t.get("ProgressClaim", half).await["retention"]), 400.0, "10% of 5000 is 500, capped at 4% of the 10000");
-    t.act(&cm, "ProgressClaim", half, "certify").await.unwrap();
+    t.passed(&sm, &cm, "ProgressClaim", half, "submit_claim").await;
     refused(t.act(&cm, "ConstructionContract", small, "complete").await, "invalid", "certified 5000");
     refused(t.act(&sm, "ConstructionContract", contract, "complete").await, "forbidden", "");
     // Even given the right to change contracts, a Site Manager does not complete one.

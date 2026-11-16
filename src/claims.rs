@@ -1,11 +1,12 @@
 //! Progress claims. A claim measures each line of its contract by its code, as a percentage done
 //! to date; its value to date is those lines' values so far, less the retention held, less what
 //! earlier claims certified. Work certified is not taken back: a line is never claimed at less than
-//! the last certified claim had it, and claims follow one another in time. Certifying recomputes
+//! the last certified claim had it, and claims follow one another in time. Submit It asks for its
+//! certification (the platform's policy on its hidden Certify It, package.yaml); certifying recomputes
 //! the claim against the contract and the claims certified as they stand, then invoices what is due
 //! through ERP.
 
-use crate::{decides, invoice, obj, status};
+use crate::{invoice, obj, status};
 use async_trait::async_trait;
 use ferrum_domain::flow::created;
 use ferrum_domain::util::{d, elevated, id, money, round, rows, s};
@@ -111,6 +112,24 @@ async fn check_progress(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<()> {
     Ok(())
 }
 
+/// The claim as it would be certified now, and its contract (held when `hold`): the contract still takes claims, and
+/// the claim, recomputed as the system against the claims certified as they stand, takes no work back and adds some.
+async fn as_certified(hc: &mut HookCtx<'_>, doc: &Doc, hold: bool) -> Result<(Doc, Doc)> {
+    let claim = id(doc, "id").ok_or_else(|| Error::internal("a claim without an id"))?;
+    let contract_id = id(doc, "contract").ok_or_else(|| Error::field("contract", "is required"))?;
+    let system = elevated(hc.ctx);
+    let contract = hc.kernel.get_tx(&system, hc.tx, "ConstructionContract", contract_id, hold).await?;
+    if status(&contract) == "Complete" {
+        return Err(Error::invalid("the contract is complete: it takes no more claims"));
+    }
+    let fresh = hc.kernel.update_tx(&system, hc.tx, "ProgressClaim", claim, Doc::new(), None).await?;
+    check_progress(hc, &fresh).await?;
+    if d(&fresh, "amount_due") <= Decimal::ZERO {
+        return Err(Error::invalid("this claim adds no work to what is certified"));
+    }
+    Ok((contract, fresh))
+}
+
 #[async_trait]
 impl DocHook for ClaimHook {
     fn name(&self) -> &'static str {
@@ -156,30 +175,21 @@ impl DocHook for ClaimHook {
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
+        let claim = id(doc, "id").ok_or_else(|| Error::internal("a claim without an id"))?;
+        if name == "submit_claim" {
+            // Refused at once what would not certify; then asked of a Contracts Manager.
+            let (_, fresh) = as_certified(hc, doc, false).await?;
+            return crate::ask(hc, "ProgressClaim", claim, &fresh, "certify", "Draft").await.map(Some);
+        }
         if name != "certify" {
             return Ok(None);
         }
-        if !decides(hc.ctx) {
-            return Err(Error::Forbidden("a Contracts Manager certifies a claim".into()));
-        }
-        if crate::raised_by(doc, hc.ctx) {
-            return Err(Error::Forbidden("someone other than whoever drew up a claim certifies it".into()));
-        }
-        let claim = id(doc, "id").ok_or_else(|| Error::internal("a claim without an id"))?;
-        let contract_id = id(doc, "contract").ok_or_else(|| Error::field("contract", "is required"))?;
+        // Certified under the policy. The contract is held while its claim is certified, so two claims are never
+        // certified against the same past.
+        let (contract, fresh) = as_certified(hc, doc, true).await?;
+        let contract_id = id(&contract, "id").ok_or_else(|| Error::internal("a contract without an id"))?;
         let system = elevated(hc.ctx);
-        // The contract is held while its claim is certified, so two claims are never certified
-        // against the same past.
-        let contract = hc.kernel.get_tx(&system, hc.tx, "ConstructionContract", contract_id, true).await?;
-        if status(&contract) == "Complete" {
-            return Err(Error::invalid("the contract is complete: it takes no more claims"));
-        }
-        let fresh = hc.kernel.update_tx(&system, hc.tx, "ProgressClaim", claim, Doc::new(), None).await?;
-        check_progress(hc, &fresh).await?;
         let due = d(&fresh, "amount_due");
-        if due <= Decimal::ZERO {
-            return Err(Error::invalid("this claim adds no work to what is certified"));
-        }
         let customer = s(&contract, "customer").ok_or_else(|| Error::field("customer", "is required"))?;
         let what = format!("Progress claim {}, work to {}", s(&fresh, "number").unwrap_or_default(), s(&fresh, "period_to").unwrap_or_default());
         let inv = invoice(hc.kernel, &system, hc.tx, customer, due, what).await?;

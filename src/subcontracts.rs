@@ -1,10 +1,11 @@
 //! Subcontracts (FEO-049): work let to a supplier under a contract, at its value. A subcontract's
 //! claim says the value of its work done to date. Certified by a Contracts Manager other than
-//! whoever drew it up, what is due after the retention held and earlier claims is billed through ERP
-//! as a draft purchase invoice from the supplier, numbered as the claim. Certified work is not taken
-//! back, and claims follow one another in time.
+//! whoever drew it up (the platform's policy on its hidden Certify It, which Submit It asks for), what
+//! is due after the retention held and earlier claims is billed through ERP as a draft purchase
+//! invoice from the supplier, numbered as the claim. Certified work is not taken back, and claims
+//! follow one another in time.
 
-use crate::{decides, obj, raised_by, status};
+use crate::{obj, status};
 use async_trait::async_trait;
 use ferrum_domain::flow::created;
 use ferrum_domain::util::{d, elevated, id, money, round, s, sys};
@@ -139,14 +140,8 @@ impl DocHook for SubcontractClaimHook {
     }
 
     async fn action(&self, hc: &mut HookCtx<'_>, name: &str, doc: &Doc, _params: &Value) -> Result<Option<Value>> {
-        if name != "certify" {
+        if name != "submit_claim" && name != "certify" {
             return Ok(None);
-        }
-        if !decides(hc.ctx) {
-            return Err(Error::Forbidden("a Contracts Manager certifies a subcontract claim".into()));
-        }
-        if raised_by(doc, hc.ctx) {
-            return Err(Error::Forbidden("someone other than whoever drew up a claim certifies it".into()));
         }
         let claim = id(doc, "id").ok_or_else(|| Error::internal("a claim without an id"))?;
         // Against the claims certified as they stand now.
@@ -156,6 +151,11 @@ impl DocHook for SubcontractClaimHook {
         if due <= Decimal::ZERO {
             return Err(Error::invalid("it adds no work: nothing is due"));
         }
+        if name == "submit_claim" {
+            // Refused at once what would not certify; then asked of a Contracts Manager.
+            return crate::ask(hc, "SubcontractClaim", claim, doc, "certify", "Draft").await.map(Some);
+        }
+        // Certified under the policy.
         let sub = subcontract_of(hc, doc).await?;
         let system = elevated(hc.ctx);
         let (company, item, _) = crate::settings(hc.tx, hc.ctx.tenant).await?;
@@ -164,7 +164,7 @@ impl DocHook for SubcontractClaimHook {
         let line = json!({"item": item.to_string(), "qty": "1", "price_list_rate": money(due), "discount_percent": "0"});
         let input = obj(json!({"company": company.to_string(), "supplier": s(&sub, "supplier"), "bill_no": number, "items": [line], "remarks": what}));
         let bill = hc.kernel.insert_tx(&system, hc.tx, "PurchaseInvoice", input).await?;
-        let values = obj(json!({"status": "Certified", "certified_by": hc.ctx.email, "retention": now.get("retention"),
+        let values = obj(json!({"status": "Certified", "retention": now.get("retention"),
                                 "previous_certified": now.get("previous_certified"), "amount_due": money(due), "purchase_invoice": bill.get("id")}));
         hc.kernel.set_values_tx(&system, hc.tx, "SubcontractClaim", claim, values).await?;
         let sub_id = id(&sub, "id").ok_or_else(|| Error::internal("a subcontract without an id"))?;

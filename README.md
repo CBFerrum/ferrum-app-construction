@@ -157,15 +157,16 @@ emails and the hand-made progress-claim invoice. Every invoice it raises is an i
 
 - **Raised on site.** A variation names a contract, a description, a reason (*Client Request*, *Design Change*,
   *Site Condition*, *Omission*), an amount and details. The amount may be below zero for work taken out.
-- **Four states.** *Draft*, *Submitted*, *Approved* or *Rejected*. Submit It, Approve It and Reject It are buttons
-  that show only when they apply.
-- **Decided by a Contracts Manager.** The date and the person who decided are recorded on the variation.
-- **Not by the person who raised it.** Someone other than whoever raised the variation approves it.
+- **Four states.** *Draft*, *Submitted*, *Approved* or *Rejected*. Submit It asks for its approval, the platform's
+  policy on the variation (editable in Customize); a Contracts Manager decides under Approvals, and the request
+  keeps who decided, when and why. A rejection makes it Rejected; a request taken back sends it to its draft.
+- **Not by the person who raised it.** It is asked in its raiser's name, so someone other than whoever raised the
+  variation approves it, whoever submits it.
 - **Approved, it joins the contract.** An approved variation becomes a line of its own on the contract, and the
   variations sum and contract sum move with it.
-- **Guarded.** A variation must add or take out some value. It cannot be raised on a complete contract. Approving one
-  that would make the contract worth less than what is certified is refused. Once submitted or decided, a
-  variation keeps its terms.
+- **Guarded.** A variation must add or take out some value. It cannot be raised on a complete contract. One that
+  would make the contract worth less than what is certified is refused when submitted, and again when approved.
+  Once submitted or decided, a variation keeps its terms.
 - **Numbered** `VAR-2026-00001`.
 
 ### 📈 Progress claims
@@ -178,12 +179,14 @@ emails and the hand-made progress-claim invoice. Every invoice it raises is an i
   The retention is the contract's percentage, held up to the contract's cap.
 - **Checks.** Each line is between 0% and 100%. A line is never claimed at less than the last certified claim had it
   ("work certified is not taken back"). A claim's period end must be after the last certified claim's.
-- **Certify It.** A Contracts Manager certifies; a Site Manager may measure. It cannot be the person who drew the
-  claim up. Certifying recomputes the claim against the contract and the claims certified at that moment, with the
-  contract locked while it runs, so two claims are never certified against the same past.
+- **Submit It, then certified.** A Site Manager may measure; Submit It asks a Contracts Manager other than whoever
+  drew the claim up to certify it (the platform's approval policy, editable in Customize). A change to the claim's
+  lines or period while it waits starts its approval again. Certifying recomputes the claim against the contract
+  and the claims certified at that moment, with the contract locked while it runs, so two claims are never certified
+  against the same past.
 - **Invoiced through ERP.** The amount due becomes a draft Sales Invoice to the contract's customer, one line,
   invoiced as the item named in the settings, with the claim's number and period in its remarks.
-- **Nothing due, nothing certified.** A claim that adds no work is refused. A certified claim is not changed: the next
+- **Nothing due, nothing certified.** A claim that adds no work is refused when submitted. A certified claim is not changed: the next
   claim carries on from it. A complete contract takes no more claims.
 - **Numbered** `PC-2026-00001`.
 
@@ -193,8 +196,8 @@ emails and the hand-made progress-claim invoice. Every invoice it raises is an i
   settings' percentage applies when it names none. It keeps what is certified to date and what is held.
 - **Claims by value to date.** A subcontract claim says the value of the work done to date, all of it, from 0 to the
   subcontract's value. Work certified is not taken back and periods move forward.
-- **Certified by someone else.** Only a Contracts Manager certifies a subcontract claim, and not the person who
-  drew it up.
+- **Certified by someone else.** Submit It asks a Contracts Manager other than the person who drew it up to certify
+  it, as for a progress claim.
 - **Billed through ERP.** What is due after retention and earlier claims becomes a draft Purchase Invoice from the
   supplier, numbered as the claim.
 - **A Site Manager** may see subcontracts and draw up their claims.
@@ -377,6 +380,7 @@ choice for formal document transmittals between firms; Construction does not do 
 
 ### ✅ Recently shipped
 
+- [x] **0.3.0** Approvals by someone else are the platform's approval policies: Submit It asks, a Contracts Manager decides.
 - [x] **0.2.2** Tuned design system: better menu icons, a lighter first page, a visible scroll cue, cleaner print.
 - [x] **0.2.1** The redesigned interface: shaped loading states, told-apart empty, denied and failed states.
 - [x] **0.2.0** Subcontracts and their claims; retention caps and release in halves; approvals by someone else;
