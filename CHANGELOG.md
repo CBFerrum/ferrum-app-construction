@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2
+
+Server only. Needs the same platform as 0.3.1. No interface or database change.
+
+- **Completions are dated on the workspace's day.** A contract's practical completion and completion were dated on the
+  UTC day: a workspace east of UTC dated the first hours of its day on the day before, one west of UTC its evenings
+  on the next day. Both are on the workspace's own day now.
+
 ## 0.3.1
 
 Needs the same platform as 0.3.0. No database change. Interface only, `ui/dist` rebuilt with Ferrum-Frontend `06bd1a2`.

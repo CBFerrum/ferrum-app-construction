@@ -7,7 +7,7 @@
 
 <br>
 
-[![Version](https://img.shields.io/badge/version-0.3.1-a16207?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.2-a16207?style=flat-square)](CHANGELOG.md)
 [![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue?style=flat-square)](LICENSE)
 [![Ferrum platform](https://img.shields.io/badge/runs%20on-Ferrum-2f5bea?style=flat-square)](https://github.com/CBFerrum/Ferrum)
 ![Rust](https://img.shields.io/badge/Rust-server-b7410e?style=flat-square&logo=rust)
@@ -46,7 +46,7 @@ emails and the hand-made progress-claim invoice. Every invoice it raises is an i
 
 | | |
 |---|---|
-| **Version** | 0.3.1 |
+| **Version** | 0.3.2 |
 | **Kind** | Its own interface at `/construction/`: a contracts home, with every record in Ferrum's lists and forms |
 | **What it adds** | 11 record types (7 documents, 3 line tables, 1 settings record), 2 roles, 1 report, 1 menu |
 | **Depends on** | Ferrum platform `>=0.3.2, <0.4`; ERP `>=0.1` (installing Construction installs ERP) |
@@ -380,6 +380,7 @@ choice for formal document transmittals between firms; Construction does not do 
 
 ### ✅ Recently shipped
 
+- [x] **0.3.2** A contract's practical completion and completion are dated on the workspace's day, not the UTC day.
 - [x] **0.3.1** Rebuilt on Ferrum-Frontend 06bd1a2: no names of what 0.3.0 removed, its start through `mountApp`, no routes to the screens apps no longer have.
 - [x] **0.3.0** Approvals by someone else are the platform's approval policies: Submit It asks, a Contracts Manager decides.
 - [x] **0.2.2** Tuned design system: better menu icons, a lighter first page, a visible scroll cue, cleaner print.
