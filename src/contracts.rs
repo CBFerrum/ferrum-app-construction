@@ -6,7 +6,6 @@
 
 use crate::{decides, invoice, obj, status, sum};
 use async_trait::async_trait;
-use chrono::Utc;
 use ferrum_domain::flow::created;
 use ferrum_domain::util::{d, elevated, id, money, rows, s};
 use ferrum_kernel::{Ctx, Doc, DocHook, Error, HookCtx, Kernel, Result, Tx};
@@ -102,7 +101,7 @@ impl DocHook for ContractHook {
         }
         let system = elevated(hc.ctx);
         let held = d(doc, "retention_held");
-        let mut values = obj(json!({"status": "Complete", "completed_on": Utc::now().date_naive().to_string(), "retention_held": money(Decimal::ZERO),
+        let mut values = obj(json!({"status": "Complete", "completed_on": hc.ctx.today().to_string(), "retention_held": money(Decimal::ZERO),
                                     "retention_released": money(d(doc, "retention_released") + held)}));
         let mut out = json!({"status": "Complete"});
         if held > Decimal::ZERO {
@@ -127,7 +126,7 @@ async fn practical_completion(hc: &mut HookCtx<'_>, doc: &Doc) -> Result<Value> 
     let held = d(doc, "retention_held");
     let half = ferrum_domain::util::round(held / Decimal::TWO, 2);
     let system = elevated(hc.ctx);
-    let mut values = obj(json!({"practical_completion_on": Utc::now().date_naive().to_string()}));
+    let mut values = obj(json!({"practical_completion_on": hc.ctx.today().to_string()}));
     let mut out = json!({"released": money(half)});
     if half > Decimal::ZERO {
         let customer = s(doc, "customer").ok_or_else(|| Error::field("customer", "is required"))?;
