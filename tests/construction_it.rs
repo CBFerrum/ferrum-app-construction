@@ -355,7 +355,16 @@ async fn scenario() {
     let sm = t.k.load_ctx(t.tenant, sm.user, None, "it".into()).await.unwrap();
     refused(t.act(&sm, "ConstructionContract", contract, "complete").await, "forbidden", "a Contracts Manager completes");
     refused(t.act(&sm, "ConstructionContract", contract, "practical_completion").await, "forbidden", "a Contracts Manager");
+    // The days a contract is practically complete and complete are the workspace's, not UTC's. No clock can be set: as
+    // the platform's own suites do, the workspace moves to a zone whose day is not UTC's now (UTC-11 before 10:00 UTC,
+    // UTC+14 after).
+    let zone = if chrono::Timelike::hour(&chrono::Utc::now()) < 10 { "Pacific/Pago_Pago" } else { "Pacific/Kiritimati" };
+    t.k.update_tenant_settings(&a, &obj(json!({"timezone": zone}))).await.expect("the workspace's zone");
+    let cm = t.k.load_ctx(t.tenant, cm.user, None, "it".into()).await.unwrap();
+    assert_ne!(cm.today(), chrono::Utc::now().date_naive(), "{zone}'s day is not UTC's");
+    let day = json!(cm.today().to_string());
     let practical = t.act(&cm, "ConstructionContract", contract, "practical_completion").await.expect("practically complete");
+    assert_eq!(t.get("ConstructionContract", contract).await["practical_completion_on"], day, "practically complete on the workspace's day");
     assert_eq!(t.invoiced(&practical["invoice"]).await, (acme.to_string(), 2887.5), "half of the 5775 held");
     assert_eq!(dec(&t.get("ConstructionContract", contract).await["retention_held"]), 2887.5);
     refused(t.act(&cm, "ConstructionContract", contract, "practical_completion").await, "invalid", "not available");
@@ -364,6 +373,7 @@ async fn scenario() {
     assert_eq!(dec(&t.get("ConstructionContract", contract).await["retention_released"]), 5775.0);
     let c = t.get("ConstructionContract", contract).await;
     assert_eq!((c["status"].as_str(), dec(&c["retention_held"])), (Some("Complete"), 0.0));
+    assert_eq!(c["completed_on"], day, "complete on the workspace's day");
     refused(t.act(&cm, "ConstructionContract", contract, "complete").await, "invalid", "not available");
     refused(t.k.insert(&cm, "ProgressClaim", obj(claim("2026-07-31", json!([])))).await, "invalid", "takes no more claims");
     refused(t.k.insert(&sm, "Variation", obj(variation("Late extra", "100"))).await, "invalid", "takes no more variations");
