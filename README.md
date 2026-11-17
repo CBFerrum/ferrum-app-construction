@@ -46,7 +46,7 @@ emails and the hand-made progress-claim invoice. Every invoice it raises is an i
 
 | | |
 |---|---|
-| **Version** | 0.2.2 |
+| **Version** | 0.3.1 |
 | **Kind** | Its own interface at `/construction/`: a contracts home, with every record in Ferrum's lists and forms |
 | **What it adds** | 11 record types (7 documents, 3 line tables, 1 settings record), 2 roles, 1 report, 1 menu |
 | **Depends on** | Ferrum platform `>=0.3.2, <0.4`; ERP `>=0.1` (installing Construction installs ERP) |
@@ -281,11 +281,11 @@ what was certified to the client against what was certified to subcontractors.
 | Estimate Line | A priced row of an estimate | Description, quantity, unit, rate, amount |
 | Contract (`ConstructionContract`) | The work agreed, line by line | Customer, project, estimate, retention and cap, original, variations and contract sum, certified to date, retention held; *Active, Complete* |
 | Contract Line | A row of the schedule of values | Code, description, value |
-| Variation | A priced change to a contract | Contract, reason, amount, decided on and by; *Draft, Submitted, Approved, Rejected* |
+| Variation | A priced change to a contract | Contract, reason, amount; *Draft, Submitted, Approved, Rejected* |
 | Progress Claim | How far each contract line has got | Contract, period to, lines, value to date, retention, previous certified, amount due, sales invoice; *Draft, Certified* |
 | Claim Line | A row of a claim | Code, description, value, percent complete, value to date |
 | Subcontract | Work let to a supplier | Contract, supplier, value, retention percentage, certified to date, retention held |
-| Subcontract Claim | A subcontract's work done to date | Subcontract, period to, value to date, retention, amount due, certified by, purchase invoice; *Draft, Certified* |
+| Subcontract Claim | A subcontract's work done to date | Subcontract, period to, value to date, retention, previous certified, amount due, purchase invoice; *Draft, Certified* |
 | Site Diary | A day on site | Project, date, weather, workers, work done, delays, visitors, incidents, written by |
 | Construction Settings | Where claims are invoiced from | Company, claim item, retention percentage, retention cap |
 
