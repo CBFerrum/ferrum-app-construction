@@ -60,28 +60,12 @@ pub fn reports() -> Vec<Arc<dyn ReportSource>> {
 }
 
 /// Upkeep: variations whose approval ended without approving them moved on.
-pub async fn maintenance(k: &Kernel) -> Result<()> {
-    let mut tx = k.db.system_tx().await?;
-    let tenants: Vec<Uuid> = sqlx::query_scalar("select id from tenant where status = 'active' order by id").fetch_all(&mut *tx).await?;
+pub async fn maintenance(k: &Kernel, tenant: Uuid) -> Result<()> {
+    let ctx = Ctx::system(tenant, k.registry.schema(tenant).await?);
+    let mut tx = k.db.tenant_tx(tenant).await?;
+    contracts::follow_approvals(k, &ctx, &mut tx).await?;
     tx.commit().await?;
-    let mut first_error: Option<Error> = None;
-    for tenant in tenants {
-        let run = async {
-            let schema = k.registry.schema(tenant).await?;
-            if !schema.packages.iter().any(|p| p == "construction") {
-                return Ok(());
-            }
-            let ctx = Ctx::system(tenant, schema);
-            let mut tx = k.db.tenant_tx(tenant).await?;
-            contracts::follow_approvals(k, &ctx, &mut tx).await?;
-            tx.commit().await?;
-            Ok::<(), Error>(())
-        };
-        if let Err(e) = run.await {
-            first_error.get_or_insert(e);
-        }
-    }
-    first_error.map_or(Ok(()), Err)
+    Ok(())
 }
 
 /// A document from JSON.
