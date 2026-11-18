@@ -106,7 +106,6 @@ async fn scenario() {
     }
     let k = Kernel::boot(db, catalog, hooks, KernelSettings::default(), None).await.expect("boot");
     ferrum_domain::maintenance(&k).await.expect("partitions");
-    ferrum_app_erp::maintenance(&k).await.expect("partitions");
     let tenant = k
         .create_tenant(NewTenant {
             slug: "brick".into(),
@@ -213,13 +212,13 @@ async fn scenario() {
     t.k.recall_approval(&cm, "Variation", mine).await.expect("whoever raised it takes it back");
     // Asked again directly, before upkeep, by someone else: refused, else its raiser could decide it.
     refused(t.act(&cm2, "Variation", mine, "approve").await, "invalid", "in the name of whoever raised it");
-    ferrum_app_construction::maintenance(&k).await.unwrap();
+    ferrum_app_construction::maintenance(&k, tenant).await.unwrap();
     assert_eq!(t.get("Variation", mine).await["status"], "Draft", "back to its draft");
     let paint = uid(&t.insert(&sm, "Variation", variation("Gold paint", "20000")).await["id"]);
     t.act(&sm, "Variation", paint, "submit_variation").await.unwrap();
     refused(t.k.decide_approval(&cm, "Variation", paint, false, None).await, "invalid", "a reason is needed");
     t.k.decide_approval(&cm, "Variation", paint, false, Some("Not in the budget")).await.unwrap();
-    ferrum_app_construction::maintenance(&k).await.unwrap();
+    ferrum_app_construction::maintenance(&k, tenant).await.unwrap();
     assert_eq!(t.get("Variation", paint).await["status"], "Rejected");
     assert_eq!(dec(&t.get("ConstructionContract", contract).await["contract_sum"]), 115500.0, "a rejected variation changes nothing");
 
